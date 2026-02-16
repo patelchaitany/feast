@@ -89,14 +89,14 @@ text_entity = Entity(
 )
 
 # Source
-{feature_view_name}_source = FileSource(
+{feature_view_name.replace(" ", "_").replace("-", "_")}_source = FileSource(
     name="{feature_view_name}_source",
     path="data/{feature_view_name}.parquet",
     timestamp_field="event_timestamp",
 )
 
 # FeatureView
-{feature_view_name} = FeatureView(
+{feature_view_name.replace(" ", "_").replace("-", "_")} = FeatureView(
     name="{feature_view_name}",
     entities=[text_entity],
     ttl=timedelta(days=1),
@@ -120,7 +120,7 @@ text_entity = Entity(
             description="Source ID",
         ),
     ],
-    source={feature_view_name}_source,
+    source={feature_view_name.replace(" ", "_").replace("-", "_")}_source,
     online=True,
 )
 '''
