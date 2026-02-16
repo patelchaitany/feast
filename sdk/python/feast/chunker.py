@@ -105,7 +105,7 @@ class TextChunker(BaseChunker):
         if isinstance(source, Path) and source.exists():
             return Path(source).read_text()
         if isinstance(source, str):
-            if source.endswith(".txt"):
+            if source.endswith(".txt") and Path(source).exists():
                 return Path(source).read_text()
         return str(source)
 
