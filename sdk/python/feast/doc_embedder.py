@@ -125,7 +125,9 @@ text_entity = Entity(
 )
 '''
 
-    filepath = os.path.join(repo_path, feature_view_name + ".py")
+    filepath = os.path.join(
+        repo_path, feature_view_name.replace(" ", "_").replace("-", "_") + ".py"
+    )
     with open(filepath, "w") as f:
         f.write(code)
 
