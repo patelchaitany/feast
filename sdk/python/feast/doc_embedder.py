@@ -6,9 +6,6 @@ import pandas as pd
 
 from feast.chunker import BaseChunker, TextChunker
 from feast.embedder import BaseEmbedder, MultiModalEmbedder
-from feast.feature_store import FeatureStore
-from feast.repo_config import load_repo_config
-from feast.repo_operations import apply_total
 
 
 @runtime_checkable
@@ -164,12 +161,14 @@ class DocEmbedder:
             )
         if create_feature_view:
             generate_repo_file(repo_path=repo_path, feature_view_name=feature_view_name)
-            self.apply_repo()
+        self.apply_repo()
 
     def save_to_online_store(self, df: pd.DataFrame, feature_view_name: str) -> None:
         """
         Save the embedded documents to the online store.
         """
+        from feast.feature_store import FeatureStore
+
         print(f"OS {os.getcwd()}")
         store = FeatureStore(repo_path=self.repo_path)
         store.write_to_online_store(
@@ -188,6 +187,9 @@ class DocEmbedder:
         """
         Apply the repository to register feature views in the registry.
         """
+        from feast.repo_config import load_repo_config
+        from feast.repo_operations import apply_total
+
         original_cwd = os.getcwd()
         repo_path = Path(self.repo_path).resolve()
         config = load_repo_config(
