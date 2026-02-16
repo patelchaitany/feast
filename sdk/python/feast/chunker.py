@@ -76,8 +76,12 @@ class BaseChunker(ABC):
             ),
             axis=1,
         )
-
-        return pd.DataFrame(chunks_per_row.explode().tolist())
+        exploded = chunks_per_row.explode().dropna()
+        if exploded.empty:
+            return pd.DataFrame(
+                columns=["chunk_id", "original_id", "text", "chunk_index"]
+            )
+        return pd.DataFrame(exploded.tolist())
 
 
 class TextChunker(BaseChunker):

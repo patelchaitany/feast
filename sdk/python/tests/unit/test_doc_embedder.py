@@ -203,6 +203,22 @@ class TestMultiModalEmbedder:
         mock_handler.assert_called_once_with(["audio_data"])
         np.testing.assert_array_equal(result, np.array([[1.0, 2.0]]))
 
+    def test_get_embedding_dim_text(self):
+        """get_embedding_dim for text delegates to text_model."""
+        embedder = MultiModalEmbedder()
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 384
+        embedder._text_model = mock_model
+
+        assert embedder.get_embedding_dim("text") == 384
+        mock_model.get_sentence_embedding_dimension.assert_called_once()
+
+    def test_get_embedding_dim_unknown_modality(self):
+        """get_embedding_dim returns None for unrecognized modalities."""
+        embedder = MultiModalEmbedder()
+
+        assert embedder.get_embedding_dim("audio") is None
+
     def test_embed_dataframe(self):
         """embed_dataframe adds embedding columns via column_mapping."""
         embedder = MultiModalEmbedder()
@@ -286,6 +302,7 @@ class TestDocEmbedder:
         """With create_feature_view=True, generate_repo_file and apply_repo are called."""
         mock_chunker = MagicMock(spec=BaseChunker)
         mock_embedder = MagicMock(spec=BaseEmbedder)
+        mock_embedder.get_embedding_dim.return_value = None
 
         with patch("feast.doc_embedder.generate_repo_file") as mock_gen:
             DocEmbedder(
@@ -297,10 +314,63 @@ class TestDocEmbedder:
             )
 
         mock_gen.assert_called_once_with(
-            repo_path=str(tmp_path), feature_view_name="test_view"
+            repo_path=str(tmp_path),
+            feature_view_name="test_view",
+            vector_length=384,
         )
         mock_load_config.assert_called_once()
         mock_apply_total.assert_called_once()
+
+    @patch("feast.repo_operations.apply_total")
+    @patch("feast.repo_config.load_repo_config")
+    def test_init_creates_feature_view_with_explicit_vector_length(
+        self, mock_load_config, mock_apply_total, tmp_path
+    ):
+        """Explicit vector_length overrides auto-detection."""
+        mock_chunker = MagicMock(spec=BaseChunker)
+        mock_embedder = MagicMock(spec=BaseEmbedder)
+
+        with patch("feast.doc_embedder.generate_repo_file") as mock_gen:
+            DocEmbedder(
+                repo_path=str(tmp_path),
+                feature_view_name="test_view",
+                chunker=mock_chunker,
+                embedder=mock_embedder,
+                create_feature_view=True,
+                vector_length=256,
+            )
+
+        mock_gen.assert_called_once_with(
+            repo_path=str(tmp_path),
+            feature_view_name="test_view",
+            vector_length=256,
+        )
+
+    @patch("feast.repo_operations.apply_total")
+    @patch("feast.repo_config.load_repo_config")
+    def test_init_creates_feature_view_auto_detects_vector_length(
+        self, mock_load_config, mock_apply_total, tmp_path
+    ):
+        """Auto-detected vector_length from embedder is used when not explicitly set."""
+        mock_chunker = MagicMock(spec=BaseChunker)
+        mock_embedder = MagicMock(spec=BaseEmbedder)
+        mock_embedder.get_embedding_dim.return_value = 512
+
+        with patch("feast.doc_embedder.generate_repo_file") as mock_gen:
+            DocEmbedder(
+                repo_path=str(tmp_path),
+                feature_view_name="test_view",
+                chunker=mock_chunker,
+                embedder=mock_embedder,
+                create_feature_view=True,
+            )
+
+        mock_gen.assert_called_once_with(
+            repo_path=str(tmp_path),
+            feature_view_name="test_view",
+            vector_length=512,
+        )
+        mock_embedder.get_embedding_dim.assert_called_once_with("text")
 
     @patch("feast.repo_operations.apply_total")
     @patch("feast.repo_config.load_repo_config")
