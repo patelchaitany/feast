@@ -239,6 +239,7 @@ class DocEmbedder:
         from feast.repo_config import load_repo_config
         from feast.repo_operations import apply_total
 
+        original_cwd = None
         try:
             original_cwd = os.getcwd()
             repo_path = Path(self.repo_path).resolve()
