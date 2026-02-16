@@ -68,17 +68,16 @@ class BaseChunker(ABC):
             type_column: The column containing the document types.
         """
 
-        def process_row(row):
-            source_id = str(row[id_column])
-            source = row[source_column]
-            source_type = row[type_column] if type_column else None
-            return self.load_parse_and_chunk(source, source_id, source_type)
+        chunks_per_row = df.apply(
+            lambda row: self.load_parse_and_chunk(
+                row[source_column],
+                str(row[id_column]),
+                row[type_column] if type_column else None,
+            ),
+            axis=1,
+        )
 
-        # Apply and explode
-        df["_chunks"] = df.apply(process_row, axis=1)
-        chunks_df = df["_chunks"].explode().apply(pd.Series)
-
-        return chunks_df.reset_index(drop=True)
+        return pd.DataFrame(chunks_per_row.explode().tolist())
 
 
 class TextChunker(BaseChunker):
@@ -111,6 +110,11 @@ class TextChunker(BaseChunker):
         chunks = []
 
         step = self.config.chunk_size - self.config.chunk_overlap
+        if step <= 0:
+            raise ValueError(
+                f"chunk_overlap ({self.config.chunk_overlap}) must be less than "
+                f"chunk_size ({self.config.chunk_size})"
+            )
         chunk_index = 0
 
         for i in range(0, len(words), step):

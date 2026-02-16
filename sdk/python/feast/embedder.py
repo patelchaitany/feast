@@ -51,6 +51,21 @@ class BaseEmbedder(ABC):
         """Return list of supported modalities."""
         return list(self._modality_handlers.keys())
 
+    def get_embedding_dim(self, modality: str) -> Optional[int]:
+        """
+        Return the embedding dimension for a given modality.
+
+        Subclasses should override this to return the actual dimension
+        so that auto-generated FeatureView schemas use the correct vector_length.
+
+        Args:
+            modality: The modality to query (e.g. "text", "image").
+
+        Returns:
+            The embedding dimension, or None if unknown.
+        """
+        return None
+
     @abstractmethod
     def embed(self, inputs: list[Any], modality: str) -> np.ndarray:
         """
@@ -88,7 +103,7 @@ class BaseEmbedder(ABC):
             inputs = df[source_column].tolist()
             embeddings = self.embed(inputs, modality)
             df[output_column] = pd.Series(
-                [emb.tolist() for emb in embeddings], dtype=object
+                [emb.tolist() for emb in embeddings], dtype=object, index=df.index
             )
 
         return df
@@ -136,6 +151,25 @@ class MultiModalEmbedder(BaseEmbedder):
         handler = self._modality_handlers[modality]
         return handler(inputs)
 
+    def get_embedding_dim(self, modality: str) -> Optional[int]:
+        """
+        Return the embedding dimension for a given modality.
+
+        For "text", this queries the SentenceTransformer model's dimension
+        (which triggers lazy model loading).
+
+        Args:
+            modality: The modality to query (e.g. "text", "image").
+
+        Returns:
+            The embedding dimension, or None if unknown.
+        """
+        if modality == "text":
+            return self.text_model.get_sentence_embedding_dimension()
+        elif modality == "image":
+            return self.image_model.config.vision_config.hidden_size
+        return None
+
     # Text Embedding
     @property
     def text_model(self):
@@ -174,13 +208,28 @@ class MultiModalEmbedder(BaseEmbedder):
 
         from PIL import Image
 
-        images = []
-        for inp in inputs:
-            if isinstance(inp, (str, Path)):
-                images.append(Image.open(inp))
-            else:
-                images.append(inp)
+        all_embeddings: list[np.ndarray] = []
+        batch_size = self.config.batch_size
 
-        processed = self.image_processor(images=images, return_tensors="pt")
-        embeddings = self.image_model.get_image_features(**processed)
-        return embeddings.detach().numpy()
+        for start in range(0, len(inputs), batch_size):
+            batch = inputs[start : start + batch_size]
+            images = []
+            opened: list[Image.Image] = []
+            try:
+                for inp in batch:
+                    if isinstance(inp, (str, Path)):
+                        img = Image.open(inp)
+                        opened.append(img)
+                        images.append(img)
+                    else:
+                        images.append(inp)
+
+                processed = self.image_processor(images=images, return_tensors="pt")
+            finally:
+                for img in opened:
+                    img.close()
+
+            embeddings = self.image_model.get_image_features(**processed)
+            all_embeddings.append(embeddings.detach().numpy())
+
+        return np.concatenate(all_embeddings, axis=0)

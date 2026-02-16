@@ -49,12 +49,21 @@ def default_logical_layer_fn(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def generate_repo_file(
-    repo_path: str, feature_view_name: str = "text_feature_view"
+    repo_path: str,
+    feature_view_name: str = "text_feature_view",
+    vector_length: int = 384,
 ) -> str:
     """
     Generate a Python file with Entity and FeatureView definitions.
 
     This file is compatible with `feast apply` CLI.
+
+    Args:
+        repo_path: Path to the feature repo directory.
+        feature_view_name: Name of the feature view to create.
+        vector_length: Dimension of the embedding vectors. Should match the
+            output dimension of the embedding model being used. Defaults to
+            384 (matching the default all-MiniLM-L6-v2 model).
 
     Returns:
         Path to generated file.
@@ -102,7 +111,7 @@ text_entity = Entity(
             dtype=Array(Float32),
             description="Vector embedding",
             vector_index=True,
-            vector_length=384,
+            vector_length={vector_length},
             vector_search_metric="COSINE",
         ),
         Field(
@@ -135,7 +144,11 @@ class DocEmbedder:
         chunker: Chunker to use for chunking the documents.
         embedder: Embedder to use for embedding the documents.
         logical_layer_fn: Logical layer function to use for transforming the output of the chunker and embedder into the format expected by the FeatureView schema.
-        create_feature_view: Whether to create a feature view in the feature repo By default it will generate a Python file with the FeatureView definition.
+        create_feature_view: Whether to create a feature view in the feature repo. By default it will generate a Python file with the FeatureView definition.
+        vector_length: Explicit embedding dimension for the generated FeatureView schema.
+            If None (default), the dimension is auto-detected from the embedder
+            via ``get_embedding_dim("text")``. Falls back to 384 if detection
+            is not supported by the embedder.
     """
 
     def __init__(
@@ -143,16 +156,17 @@ class DocEmbedder:
         repo_path: str,
         yaml_file: str = "feature_store.yaml",
         feature_view_name: str = "text_feature_view",
-        chunker: BaseChunker = TextChunker(),
-        embedder: BaseEmbedder = MultiModalEmbedder(),
+        chunker: Optional[BaseChunker] = None,
+        embedder: Optional[BaseEmbedder] = None,
         logical_layer_fn: LogicalLayerFn = default_logical_layer_fn,
         create_feature_view: bool = True,
+        vector_length: Optional[int] = None,
     ):
         self.repo_path = repo_path
         self.yaml_path = os.path.join(Path(repo_path).resolve(), yaml_file)
         self.feature_view_name = feature_view_name
-        self.chunker = chunker
-        self.embedder = embedder
+        self.chunker = chunker or TextChunker()
+        self.embedder = embedder or MultiModalEmbedder()
         if isinstance(logical_layer_fn, LogicalLayerFn):
             self.logical_layer_fn = logical_layer_fn
         else:
@@ -160,8 +174,44 @@ class DocEmbedder:
                 "logical_layer_fn must be a LogicalLayerFn or a function that takes a DataFrame and returns a DataFrame"
             )
         if create_feature_view:
-            generate_repo_file(repo_path=repo_path, feature_view_name=feature_view_name)
+            resolved_vector_length = self._resolve_vector_length(vector_length, "text")
+            generate_repo_file(
+                repo_path=repo_path,
+                feature_view_name=feature_view_name,
+                vector_length=resolved_vector_length,
+            )
         self.apply_repo()
+
+    def _resolve_vector_length(
+        self, explicit_length: Optional[int], modality: str
+    ) -> int:
+        """
+        Determine the vector length to use for the generated FeatureView.
+
+        Priority:
+            1. Explicitly provided vector_length
+            2. Auto-detected from embedder via get_embedding_dim("text")
+            3. Default of 384 (matching all-MiniLM-L6-v2)
+
+        Args:
+            explicit_length: User-provided vector length, or None.
+
+        Returns:
+            The resolved vector length as an integer.
+        """
+        _DEFAULT_VECTOR_LENGTH = 384
+
+        if explicit_length is not None:
+            return explicit_length
+
+        try:
+            dim = self.embedder.get_embedding_dim(modality)
+            if dim is not None:
+                return dim
+        except Exception:
+            pass
+
+        return _DEFAULT_VECTOR_LENGTH
 
     def save_to_online_store(self, df: pd.DataFrame, feature_view_name: str) -> None:
         """
@@ -169,7 +219,6 @@ class DocEmbedder:
         """
         from feast.feature_store import FeatureStore
 
-        print(f"OS {os.getcwd()}")
         store = FeatureStore(repo_path=self.repo_path)
         store.write_to_online_store(
             feature_view_name=feature_view_name,
@@ -190,19 +239,21 @@ class DocEmbedder:
         from feast.repo_config import load_repo_config
         from feast.repo_operations import apply_total
 
-        original_cwd = os.getcwd()
-        repo_path = Path(self.repo_path).resolve()
-        config = load_repo_config(
-            repo_path=repo_path,
-            fs_yaml_file=Path(self.yaml_path),
-        )
-        apply_total(
-            repo_config=config,
-            repo_path=repo_path,
-            skip_source_validation=True,
-        )
-        # Restore CWD since apply_total changes it via os.chdir
-        os.chdir(original_cwd)
+        try:
+            original_cwd = os.getcwd()
+            repo_path = Path(self.repo_path).resolve()
+            config = load_repo_config(
+                repo_path=repo_path,
+                fs_yaml_file=Path(self.yaml_path),
+            )
+            apply_total(
+                repo_config=config,
+                repo_path=repo_path,
+                skip_source_validation=True,
+            )
+        finally:
+            if original_cwd is not None:
+                os.chdir(original_cwd)
 
     def embed_documents(
         self,
