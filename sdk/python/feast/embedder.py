@@ -226,8 +226,8 @@ class MultiModalEmbedder(BaseEmbedder):
 
                 processed = self.image_processor(images=images, return_tensors="pt")
             finally:
-                for img in opened:
-                    img.close()
+                for opened_img in opened:
+                    opened_img.close()
 
             embeddings = self.image_model.get_image_features(**processed)
             all_embeddings.append(embeddings.detach().numpy())
