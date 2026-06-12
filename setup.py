@@ -59,6 +59,7 @@ REQUIRED = [
     "psutil",
     "bigtree>=0.19.2",
     "pyjwt",
+    "idna>=3.11",
 ]
 
 GCP_REQUIRED = [
