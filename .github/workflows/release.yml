@@ -108,7 +108,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.22.9
+          go-version: 1.25.0
       - name: Build & version operator-specific release files
         run: make -C infra/feast-operator build-installer bundle
 
@@ -170,7 +170,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.22.9
+          go-version: 1.25.0
       - name: Release (Dry Run)
         if: github.event.inputs.dry_run == 'true'
         run: |
