@@ -51,6 +51,7 @@ REQUIRED = [
     "tqdm>=4,<5",
     "typeguard>=4.0.0",
     "fastapi>=0.120.1",
+    "starlette>=1.0.1",
     "uvicorn[standard]>=0.30.6,<=0.34.0",
     "uvicorn-worker",
     "gunicorn; platform_system != 'Windows'",
@@ -63,6 +64,7 @@ REQUIRED = [
     "aiohttp>=3.13.3",
     "python-multipart>=0.0.22",
     "pyOpenSSL>=26.0.0",
+    "idna>=3.10",
 ]
 
 GCP_REQUIRED = [
