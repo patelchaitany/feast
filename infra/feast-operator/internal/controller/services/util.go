@@ -90,6 +90,11 @@ func ApplyDefaultsToStatus(cr *feastdevv1alpha1.FeatureStore) {
 	cr.Status.FeastVersion = feastversion.FeastVersion
 
 	applied := &cr.Status.Applied
+	if applied.AuthzConfig == nil {
+		applied.AuthzConfig = &feastdevv1alpha1.AuthzConfig{
+			KubernetesAuthz: &feastdevv1alpha1.KubernetesAuthz{},
+		}
+	}
 	if applied.FeastProjectDir == nil {
 		applied.FeastProjectDir = &feastdevv1alpha1.FeastProjectDir{
 			Init: &feastdevv1alpha1.FeastInitOptions{},
