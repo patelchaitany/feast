@@ -309,9 +309,9 @@ gitdb==4.0.12 \
     --hash=sha256:5ef71f855d191a3326fcfbc0d5da835f26b13fbcba60c32c21091c349ffdb571 \
     --hash=sha256:67073e15955400952c6565cc3e707c554a4eea2e428946f7a4c162fab9bd9bcf
     # via gitpython
-gitpython==3.1.53 \
-    --hash=sha256:06ae8d9623b0ed0d67b8adeac5c7008d0a5a404b087a9e0d0c7163bdd3a6b497 \
-    --hash=sha256:187885556b64ab357bd4ea84e2c4cce2861a613a7f4268b3f7f7ba05f2ce4ab0
+gitpython==3.1.52 \
+    --hash=sha256:79a36ee1f83523214a3f72d56cf1c4e490d577dc61af77e43dfe5862bd9da01a \
+    --hash=sha256:de0a8ad86274c6e75ae8b37dd055ba68f19818c813108642263227b20775b48e
     # via pymilvus
 hatch-fancy-pypi-readme==25.1.0 \
     --hash=sha256:9c58ed3dff90d51f43414ce37009ad1d5b0f08ffc9fc216998a06380f01c0045 \
@@ -906,9 +906,9 @@ setuptools-rust==1.13.0 \
     # via
     #   libcst
     #   maturin
-setuptools-scm==10.2.1 \
-    --hash=sha256:4fa7dd82cf8c800df59c9a288c90299b1657ff1ecfc3f5cc00287c5dbf5e27a9 \
-    --hash=sha256:b7c82f4102d389ee57dc66ccdb4f9b4bca3c40ba83b43f1f63d68ccd72db2580
+setuptools-scm==10.2.0 \
+    --hash=sha256:6cc5ac7da8e54d74e43503be2fa023eb7a1ca820d5c318e6ae20efc48110d6c7 \
+    --hash=sha256:ec8ea1738b92e42146a46e29a0e9de9ad462744c63cf9778677b95dfd605adde
     # via
     #   anyio
     #   dask
@@ -1124,7 +1124,6 @@ setuptools==80.10.2 \
     #   versioneer
     #   websockets
     #   wrapt
-    #   yarl
     #   zipp
 setuptools==83.0.0 \
     --hash=sha256:025bccbbf0fa05b6192bc64ae1e7b16e001fd6d6d4d5de03c97b1c1ade523bef \
@@ -1134,3 +1133,4 @@ setuptools==83.0.0 \
     #   python-dateutil
     #   types-pymysql
     #   types-setuptools
+    #   yarl
