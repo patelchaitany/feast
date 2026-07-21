@@ -342,6 +342,29 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
         self, request: RegistryServer_pb2.ApplyFeatureViewRequest, context
     ):
         feature_view_type = request.WhichOneof("base_feature_view")
+
+        # First pass: deserialize without UDF bodies for authorization check.
+        # This prevents RCE via crafted dill payloads before auth (CVE-2026-56121).
+        if feature_view_type == "feature_view":
+            feature_view_for_auth = FeatureView.from_proto(
+                request.feature_view, skip_udf=True
+            )
+        elif feature_view_type == "on_demand_feature_view":
+            feature_view_for_auth = OnDemandFeatureView.from_proto(
+                request.on_demand_feature_view, skip_udf=True
+            )
+        elif feature_view_type == "stream_feature_view":
+            feature_view_for_auth = StreamFeatureView.from_proto(
+                request.stream_feature_view, skip_udf=True
+            )
+
+        assert_permissions_to_update(
+            resource=feature_view_for_auth,
+            getter=self.proxied_registry.get_feature_view,
+            project=request.project,
+        )
+
+        # Second pass: full deserialization after authorization passes.
         if feature_view_type == "feature_view":
             feature_view = FeatureView.from_proto(request.feature_view)
         elif feature_view_type == "on_demand_feature_view":
@@ -350,13 +373,6 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
             )
         elif feature_view_type == "stream_feature_view":
             feature_view = StreamFeatureView.from_proto(request.stream_feature_view)
-
-        assert_permissions_to_update(
-            resource=feature_view,
-            # Will replace with the new get_any_feature_view method later
-            getter=self.proxied_registry.get_feature_view,
-            project=request.project,
-        )
 
         (
             self.proxied_registry.apply_feature_view(

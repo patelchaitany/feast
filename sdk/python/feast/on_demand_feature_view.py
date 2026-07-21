@@ -582,7 +582,7 @@ class OnDemandFeatureView(BaseFeatureView):
 
         # Parse transformation from proto
         transformation = cls._parse_transformation_from_proto(
-            on_demand_feature_view_proto
+            on_demand_feature_view_proto, skip_udf=skip_udf
         )
 
         # Parse optional fields with defaults
@@ -673,9 +673,12 @@ class OnDemandFeatureView(BaseFeatureView):
 
     @classmethod
     def _parse_transformation_from_proto(
-        cls, proto: OnDemandFeatureViewProto
-    ) -> Transformation:
+        cls, proto: OnDemandFeatureViewProto, skip_udf: bool = False
+    ) -> Optional[Transformation]:
         """Parse and convert the transformation from the protobuf representation."""
+        if skip_udf:
+            return None
+
         feature_transformation = proto.spec.feature_transformation
         transformation_type = feature_transformation.WhichOneof("transformation")
         mode = proto.spec.mode
