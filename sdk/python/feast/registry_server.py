@@ -815,13 +815,19 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def ApplyValidationReference(
         self, request: RegistryServer_pb2.ApplyValidationReferenceRequest, context
     ):
-        validation_reference = cast(
-            ValidationReference,
-            assert_permissions_to_update(
-                resource=ValidationReference.from_proto(request.validation_reference),
-                getter=self.proxied_registry.get_validation_reference,
-                project=request.project,
-            ),
+        # First pass: skip profiler deserialization for auth check (CVE-2026-56121).
+        validation_reference_for_auth = ValidationReference.from_proto(
+            request.validation_reference, skip_profiler=True
+        )
+        assert_permissions_to_update(
+            resource=validation_reference_for_auth,
+            getter=self.proxied_registry.get_validation_reference,
+            project=request.project,
+        )
+
+        # Second pass: full deserialization after authorization passes.
+        validation_reference = ValidationReference.from_proto(
+            request.validation_reference
         )
         self.proxied_registry.apply_validation_reference(
             validation_reference=validation_reference,
@@ -902,8 +908,9 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def ApplyMaterialization(
         self, request: RegistryServer_pb2.ApplyMaterializationRequest, context
     ):
+        # First pass: skip UDF deserialization for auth check (CVE-2026-56121).
         assert_permissions(
-            resource=FeatureView.from_proto(request.feature_view),
+            resource=FeatureView.from_proto(request.feature_view, skip_udf=True),
             actions=[AuthzedAction.WRITE_ONLINE],
         )
 

@@ -303,12 +303,16 @@ class ValidationReference:
         return self._profile
 
     @classmethod
-    def from_proto(cls, proto: ValidationReferenceProto) -> "ValidationReference":
+    def from_proto(
+        cls, proto: ValidationReferenceProto, skip_profiler: bool = False
+    ) -> "ValidationReference":
         profiler_attr = proto.WhichOneof("profiler")
         if profiler_attr == "ge_profiler":
             from feast.dqm.profilers.ge_profiler import GEProfiler
 
-            profiler = GEProfiler.from_proto(proto.ge_profiler)
+            profiler = GEProfiler.from_proto(
+                proto.ge_profiler, skip_profiler=skip_profiler
+            )
         else:
             raise RuntimeError("Unrecognized profiler")
 

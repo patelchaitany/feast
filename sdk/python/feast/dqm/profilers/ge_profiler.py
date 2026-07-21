@@ -154,7 +154,11 @@ class GEProfiler(Profiler):
         )
 
     @classmethod
-    def from_proto(cls, proto: GEValidationProfilerProto) -> "GEProfiler":
+    def from_proto(
+        cls, proto: GEValidationProfilerProto, skip_profiler: bool = False
+    ) -> "GEProfiler":
+        if skip_profiler:
+            return GEProfiler(user_defined_profiler=lambda df: None)
         return GEProfiler(user_defined_profiler=dill.loads(proto.profiler.body))
 
 
