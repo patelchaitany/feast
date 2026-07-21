@@ -542,7 +542,7 @@ class FeatureView(BaseFeatureView):
         )
         source_views = [
             FeatureView._from_proto_internal(
-                FeatureViewProto(spec=view_spec, meta=None), seen
+                FeatureViewProto(spec=view_spec, meta=None), seen, skip_udf=skip_udf
             )
             for view_spec in feature_view_proto.spec.source_views
         ]

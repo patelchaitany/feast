@@ -904,8 +904,9 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def ApplyMaterialization(
         self, request: RegistryServer_pb2.ApplyMaterializationRequest, context
     ):
+        # CVE-2026-56121: two-pass deserialization to prevent dill.loads before auth
         assert_permissions(
-            resource=FeatureView.from_proto(request.feature_view),
+            resource=FeatureView.from_proto(request.feature_view, skip_udf=True),
             actions=[AuthzedAction.WRITE_ONLINE],
         )
 

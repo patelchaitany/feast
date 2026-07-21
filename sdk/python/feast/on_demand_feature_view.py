@@ -375,7 +375,7 @@ class OnDemandFeatureView(BaseFeatureView):
         ) in on_demand_feature_view_proto.spec.sources.items():
             if on_demand_source.WhichOneof("source") == "feature_view":
                 sources.append(
-                    FeatureView.from_proto(on_demand_source.feature_view).projection
+                    FeatureView.from_proto(on_demand_source.feature_view, skip_udf=skip_udf).projection
                 )
             elif on_demand_source.WhichOneof("source") == "feature_view_projection":
                 sources.append(
