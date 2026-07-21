@@ -93,9 +93,12 @@ class Transformation(ABC):
         mode_str = (
             self.mode.value if isinstance(self.mode, TransformationMode) else self.mode
         )
+        body = getattr(self, "_raw_udf_body", None)
+        if body is None:
+            body = dill.dumps(self.udf, recurse=True)
         return UserDefinedFunctionProto(
             name=self.udf.__name__,
-            body=dill.dumps(self.udf, recurse=True),
+            body=body,
             body_text=self.udf_string,
             mode=mode_str,
         )

@@ -398,7 +398,8 @@ class OnDemandFeatureView(BaseFeatureView):
             and on_demand_feature_view_proto.spec.mode == "pandas"
         ):
             transformation = PandasTransformation.from_proto(
-                on_demand_feature_view_proto.spec.feature_transformation.user_defined_function
+                on_demand_feature_view_proto.spec.feature_transformation.user_defined_function,
+                skip_udf=skip_udf,
             )
         elif (
             on_demand_feature_view_proto.spec.feature_transformation.WhichOneof(
@@ -410,7 +411,8 @@ class OnDemandFeatureView(BaseFeatureView):
             and on_demand_feature_view_proto.spec.mode == "python"
         ):
             transformation = PythonTransformation.from_proto(
-                on_demand_feature_view_proto.spec.feature_transformation.user_defined_function
+                on_demand_feature_view_proto.spec.feature_transformation.user_defined_function,
+                skip_udf=skip_udf,
             )
         elif (
             on_demand_feature_view_proto.spec.feature_transformation.WhichOneof(
@@ -419,7 +421,8 @@ class OnDemandFeatureView(BaseFeatureView):
             == "substrait_transformation"
         ):
             transformation = SubstraitTransformation.from_proto(
-                on_demand_feature_view_proto.spec.feature_transformation.substrait_transformation
+                on_demand_feature_view_proto.spec.feature_transformation.substrait_transformation,
+                skip_udf=skip_udf,
             )
         elif (
             hasattr(on_demand_feature_view_proto.spec, "user_defined_function")
@@ -433,6 +436,7 @@ class OnDemandFeatureView(BaseFeatureView):
             )
             transformation = PandasTransformation.from_proto(
                 user_defined_function_proto=backwards_compatible_udf,
+                skip_udf=skip_udf,
             )
         else:
             raise ValueError("At least one transformation type needs to be provided")

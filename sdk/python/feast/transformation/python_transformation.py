@@ -163,7 +163,23 @@ class PythonTransformation(Transformation):
         )
 
     @classmethod
-    def from_proto(cls, user_defined_function_proto: UserDefinedFunctionProto):
+    def from_proto(
+        cls,
+        user_defined_function_proto: UserDefinedFunctionProto,
+        skip_udf: bool = False,
+    ):
+        if skip_udf:
+
+            def _placeholder(*args, **kwargs):
+                raise RuntimeError("UDF was not deserialized (skip_udf=True)")
+
+            _placeholder.__name__ = user_defined_function_proto.name or "placeholder"
+            obj = PythonTransformation(
+                udf=_placeholder,
+                udf_string=user_defined_function_proto.body_text or "",
+            )
+            obj._raw_udf_body = bytes(user_defined_function_proto.body)
+            return obj
         return PythonTransformation(
             udf=dill.loads(user_defined_function_proto.body),
             udf_string=user_defined_function_proto.body_text,

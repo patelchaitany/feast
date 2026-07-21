@@ -148,16 +148,33 @@ class SubstraitTransformation(Transformation):
         return SubstraitTransformation(substrait_plan=self.substrait_plan, udf=self.udf)
 
     def to_proto(self) -> SubstraitTransformationProto:
+        ibis_function = getattr(self, "_raw_ibis_function", None)
+        if ibis_function is None:
+            ibis_function = dill.dumps(self.udf, recurse=True)
         return SubstraitTransformationProto(
             substrait_plan=self.substrait_plan,
-            ibis_function=dill.dumps(self.udf, recurse=True),
+            ibis_function=ibis_function,
         )
 
     @classmethod
     def from_proto(
         cls,
         substrait_transformation_proto: SubstraitTransformationProto,
+        skip_udf: bool = False,
     ):
+        if skip_udf:
+
+            def _placeholder(*args, **kwargs):
+                raise RuntimeError("UDF was not deserialized (skip_udf=True)")
+
+            obj = SubstraitTransformation(
+                substrait_plan=substrait_transformation_proto.substrait_plan,
+                udf=_placeholder,
+            )
+            obj._raw_ibis_function = bytes(
+                substrait_transformation_proto.ibis_function
+            )
+            return obj
         return SubstraitTransformation(
             substrait_plan=substrait_transformation_proto.substrait_plan,
             udf=dill.loads(substrait_transformation_proto.ibis_function),
