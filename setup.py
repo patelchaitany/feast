@@ -40,7 +40,7 @@ REQUIRED = [
     "numpy>=2.0.0,<3",
     "pandas>=1.4.3,<3",
     "pyarrow<18.1.0",
-    "pydantic>=2.11.0",
+    "pydantic>=2.12.0,<3",
     "pygments>=2.12.0,<3",
     "PyYAML>=5.4.0,<7",
     "requests",
@@ -60,6 +60,7 @@ REQUIRED = [
     "psutil",
     "bigtree>=0.19.2",
     "pyjwt>=2.12.0",
+    "cryptography>=46.0.7,<47",
     "aiohttp>=3.13.3",
     "python-multipart>=0.0.22",
     "pyOpenSSL>=26.0.0",
@@ -193,14 +194,14 @@ IMAGE_REQUIRED = [
 
 RAY_REQUIRED = [
     "ray>=2.47.0; python_version == '3.10'",
-    'codeflare-sdk>=0.31.1; python_version != "3.10"',
+    'codeflare-sdk>=0.37.0; python_version != "3.10"',
     ]
 
 CI_REQUIRED = (
     [
         "build",
         "virtualenv==20.23.0",
-        "cryptography>=46.0.5,<47",
+        "cryptography>=46.0.7,<47",
         "ruff>=0.8.0",
         "mypy-protobuf>=3.1",
         "grpcio-tools>=1.56.2,<=1.62.3",

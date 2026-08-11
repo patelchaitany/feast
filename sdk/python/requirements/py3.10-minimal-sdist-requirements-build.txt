@@ -842,6 +842,7 @@ tomli==2.4.1 \
     #   psycopg-c
     #   scikit-build-core
     #   setuptools-scm
+    #   vcs-versioning
     #   versioneer
     #   yarl
 tomlkit==0.15.0 \
@@ -867,7 +868,6 @@ typing-extensions==4.16.0 \
     --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5
     # via
     #   mypy
-    #   pydantic-core
     #   scikit-build-core
     #   setuptools-scm
     #   vcs-versioning
