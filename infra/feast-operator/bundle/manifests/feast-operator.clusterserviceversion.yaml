@@ -114,7 +114,6 @@ spec:
           - ""
           resources:
           - pods
-          - secrets
           verbs:
           - get
           - list
@@ -124,6 +123,12 @@ spec:
           - pods/exec
           verbs:
           - create
+        - apiGroups:
+          - ""
+          resources:
+          - secrets
+          verbs:
+          - get
         - apiGroups:
           - feast.dev
           resources:
