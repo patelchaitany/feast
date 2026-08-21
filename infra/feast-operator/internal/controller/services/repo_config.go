@@ -413,5 +413,5 @@ var defaultOfflineStoreConfig = OfflineStoreConfig{
 }
 
 var defaultAuthzConfig = AuthzConfig{
-	Type: NoAuthAuthType,
+	Type: KubernetesAuthType,
 }
