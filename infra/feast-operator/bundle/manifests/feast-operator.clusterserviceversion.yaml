@@ -192,6 +192,14 @@ spec:
           - ""
           resources:
           - namespaces
+          verbs:
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
           - secrets
           verbs:
           - get
