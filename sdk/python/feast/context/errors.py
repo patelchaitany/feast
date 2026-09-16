@@ -82,3 +82,17 @@ class RequiredSectionError(TokenBudgetExceededError):
             ),
         )
         self.section = section
+
+
+class TemplateRenderError(ContextError):
+    """A prompt template failed to compile or to render.
+
+    Rendering is strict: a variable missing from the context is an error rather
+    than a blank, so a feature absent at serving time fails the request instead
+    of quietly changing the prompt.
+    """
+
+    def __init__(self, cause: Exception):
+        line = getattr(cause, "lineno", None)
+        where = f" at line {line}" if line else ""
+        super().__init__(f"Cannot render the prompt template{where}: {cause}")
