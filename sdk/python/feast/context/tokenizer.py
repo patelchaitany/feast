@@ -14,7 +14,7 @@ import math
 from abc import ABC, abstractmethod
 from enum import Enum
 from functools import lru_cache
-from typing import Any, Union
+from typing import Any, Callable, Union
 
 from feast.context.errors import TokenizerNotFoundError, TokenizerUnavailableError
 from feast.errors import FeastInvalidBaseClass
@@ -26,7 +26,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_CHARS_PER_TOKEN = 4
 
 #: Quoted in error messages when tiktoken is missing.
-TIKTOKEN_INSTALL_HINT = "pip install tiktoken"
+TIKTOKEN_INSTALL_HINT = "pip install 'feast[llm]'"
+
+#: How many recent texts a tiktoken tokenizer keeps the tokens of, and the
+#: lengths worth it: shorter ones encode cheaply, and longer ones would hold
+#: megabytes between renders.
+_REMEMBERED_ENCODINGS = 8
+_MIN_REMEMBERED_CHARS = 1024
+_MAX_REMEMBERED_CHARS = 64_000
 
 
 class TokenizerName(str, Enum):
@@ -57,6 +64,10 @@ class Tokenizer(ABC):
 
     Two tokenizers that count identically compare equal, so budgets built from
     the same name are interchangeable as dict keys and set members.
+
+    Cutting text to a token count works on ``count_tokens`` alone, by search. A
+    tokenizer that can encode should override ``_prefix`` and ``_suffix`` to cut
+    in one pass.
     """
 
     @property
@@ -67,6 +78,41 @@ class Tokenizer(ABC):
     @abstractmethod
     def count_tokens(self, text: str) -> int:
         """Number of tokens in ``text``. Returns 0 for the empty string."""
+
+    def prefix(self, text: str, max_tokens: int) -> str:
+        """The longest start of ``text`` costing at most ``max_tokens``.
+
+        ``text`` itself when it already fits. Where adding text can lower the
+        count, the start returned fits but a longer one might too.
+        """
+        _check_max_tokens(max_tokens)
+        return self._prefix(text, max_tokens)
+
+    def suffix(self, text: str, max_tokens: int) -> str:
+        """The longest end of ``text`` costing at most ``max_tokens``.
+
+        ``text`` itself when it already fits. Where adding text can lower the
+        count, the end returned fits but a longer one might too.
+        """
+        _check_max_tokens(max_tokens)
+        return self._suffix(text, max_tokens)
+
+    def _prefix(self, text: str, max_tokens: int) -> str:
+        if self.count_tokens(text) <= max_tokens:
+            return text
+        kept = _longest_fitting(
+            len(text), lambda length: self.count_tokens(text[:length]) <= max_tokens
+        )
+        return text[:kept]
+
+    def _suffix(self, text: str, max_tokens: int) -> str:
+        if self.count_tokens(text) <= max_tokens:
+            return text
+        kept = _longest_fitting(
+            len(text),
+            lambda length: self.count_tokens(text[len(text) - length :]) <= max_tokens,
+        )
+        return text[len(text) - kept :]
 
     def _identity(self) -> tuple[object, ...]:
         """Whatever makes two instances count the same way."""
@@ -108,6 +154,12 @@ class ApproximateTokenizer(Tokenizer):
     def count_tokens(self, text: str) -> int:
         return math.ceil(len(text) / self._chars_per_token)
 
+    def _prefix(self, text: str, max_tokens: int) -> str:
+        return text[: max_tokens * self._chars_per_token]
+
+    def _suffix(self, text: str, max_tokens: int) -> str:
+        return text[max(len(text) - max_tokens * self._chars_per_token, 0) :]
+
     def _identity(self) -> tuple[object, ...]:
         return (self.name, self._chars_per_token)
 
@@ -124,6 +176,7 @@ class TiktokenTokenizer(Tokenizer):
     def __init__(self, encoding_name: str) -> None:
         self._encoding_name = encoding_name
         self._encoding = _load_tiktoken_encoding(encoding_name)
+        self._recent: tuple[tuple[str, list[int]], ...] = ()
 
     @property
     def name(self) -> str:
@@ -132,9 +185,57 @@ class TiktokenTokenizer(Tokenizer):
     def count_tokens(self, text: str) -> int:
         if not text:
             return 0
+        return len(self._encode(text))
+
+    def _prefix(self, text: str, max_tokens: int) -> str:
+        tokens = self._encode(text)
+        if len(tokens) <= max_tokens:
+            return text
+        return self._decode_fitting(tokens, max_tokens, from_end=False)
+
+    def _suffix(self, text: str, max_tokens: int) -> str:
+        tokens = self._encode(text)
+        if len(tokens) <= max_tokens:
+            return text
+        return self._decode_fitting(tokens, max_tokens, from_end=True)
+
+    def _encode(self, text: str) -> list[int]:
+        """The tokens of ``text``; callers must not change the list returned."""
+        if not _MIN_REMEMBERED_CHARS <= len(text) <= _MAX_REMEMBERED_CHARS:
+            return self._encode_uncached(text)
+        # Cutting a long value encodes it again straight after counting it, and
+        # a render counts the same values more than once. Remember the last few
+        # by identity; swapping the whole tuple keeps concurrent calls safe, and
+        # a lost update only costs an encode.
+        recent = self._recent
+        for seen, tokens in recent:
+            if seen is text:
+                return tokens
+        tokens = self._encode_uncached(text)
+        self._recent = ((text, tokens),) + recent[: _REMEMBERED_ENCODINGS - 1]
+        return tokens
+
+    def _encode_uncached(self, text: str) -> list[int]:
         # Feature values are arbitrary text: count a literal "<|endoftext|>"
         # rather than raise, which is tiktoken's default for special tokens.
-        return len(self._encoding.encode(text, disallowed_special=()))
+        return self._encoding.encode(text, disallowed_special=())
+
+    def _decode_fitting(
+        self, tokens: list[int], max_tokens: int, from_end: bool
+    ) -> str:
+        """The text of the first or last ``max_tokens`` of ``tokens``."""
+        kept = max_tokens
+        while True:
+            piece = tokens[len(tokens) - kept :] if from_end else tokens[:kept]
+            # A cut can split a character across tokens: drop its stray bytes,
+            # so the text is a clean start or end of the original.
+            text = self._encoding.decode_bytes(piece).decode("utf-8", errors="ignore")
+            # Encoded again on its own, the piece could take more tokens than
+            # it held in context; give up the excess and cut again.
+            excess = self.count_tokens(text) - max_tokens
+            if excess <= 0:
+                return text
+            kept -= excess
 
 
 class Cl100kBaseTokenizer(TiktokenTokenizer):
@@ -173,6 +274,27 @@ def _load_tiktoken_encoding(encoding_name: str) -> Any:
             f"tiktoken failed to load the encoding ({e})",
             TIKTOKEN_INSTALL_HINT,
         ) from e
+
+
+def _check_max_tokens(max_tokens: int) -> None:
+    if max_tokens < 0:
+        raise ValueError(f"max_tokens must not be negative, got {max_tokens}.")
+
+
+def _longest_fitting(length: int, fits: Callable[[int], bool]) -> int:
+    """Bisect for an ``n`` where ``fits(n)`` holds and ``fits(n + 1)`` does not.
+
+    Assumes ``fits(0)`` holds and ``fits(length)`` does not. The ``n`` found is
+    the largest that fits when ``fits`` turns false only once.
+    """
+    fitting, overflowing = 0, length
+    while overflowing - fitting > 1:
+        middle = (fitting + overflowing) // 2
+        if fits(middle):
+            fitting = middle
+        else:
+            overflowing = middle
+    return fitting
 
 
 #: What callers may pass wherever a tokenizer is expected.
