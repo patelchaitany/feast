@@ -112,9 +112,9 @@ Four things that are easy to get wrong:
   server, so `features.url` has to be the Feast Service's cluster DNS name.
   `localhost` only works in the Feast-operator sidecar model.
 - **`mcp.stateless: true` drops the Service's ClientIP affinity.** Fine for
-  `auth.mode: passthrough`, but `auth.mode: oidc` keeps its authorize/callback
-  state per-node, so a callback can land on a replica that never saw the
-  authorize. Keep the affinity and a single replica for OIDC.
+  `auth.mode: passthrough`, but with `auth.mode: oidc` and more than one replica
+  the OAuth authorize/callback state needs a shared `session_storage` backend,
+  or a callback can land on a replica that never saw the authorize.
 
 If you would rather keep the config path out of the image, set it explicitly —
 `config.arguments` replaces the default `CMD`:

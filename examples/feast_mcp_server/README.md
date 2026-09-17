@@ -170,7 +170,7 @@ To give IDE clients a browser login flow, switch to OIDC. This is usually config
 feast mcp --config feast_mcp.yaml --auth-mode oidc --oidc-discovery-url https://keycloak.example.com/realms/feast/.well-known/openid-configuration --oidc-client-id feast-mcp --base-url http://localhost:8000
 ```
 
-> **Note:** Run a single replica with `oidc`. The OAuth state store is per-node and on disk, so a callback routed to a replica that did not handle the authorize request will fail.
+> **Note:** With more than one replica, also set `session_storage.backend` to a shared backend such as `redis`, `valkey`, `postgresql`, or `mongodb`. The default OAuth state store is per-node and on disk, so a callback routed to a replica that did not handle the authorize request will fail.
 
 ### Kubernetes authentication
 

@@ -40,13 +40,18 @@ observability:
   # otel_protocol: grpc     # grpc | http
   # otel_service_name: feast-mcp
 
-# OAuth state is stored per-node, so `oidc` assumes a single replica: the
-# /callback and /token requests may otherwise hit a replica that never saw the
-# /authorize. The same applies if the MCPServer CR sets `mcp.stateless: true`,
-# which drops the Service's ClientIP affinity.
-#
 # auth:
 #   mode: oidc              # passthrough | oidc
 #   discovery_url: https://keycloak.example.com/realms/feast/.well-known/openid-configuration
 #   client_id: feast-mcp
 #   base_url: https://mcp.example.com
+
+# Required for OIDC with more than one replica: the /callback and /token
+# requests may otherwise hit a replica that never saw the /authorize.
+# Also required if the MCPServer CR sets `mcp.stateless: true`, which drops
+# the Service's ClientIP affinity.
+#
+# session_storage:
+#   backend: redis          # redis | valkey | postgresql | mongodb | disk | memory
+#   options:
+#     url: redis://redis.feast.svc.cluster.local:6379

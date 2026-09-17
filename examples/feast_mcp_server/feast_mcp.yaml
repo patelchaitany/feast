@@ -33,11 +33,16 @@ observability:
 # default) accepts connections without a token, which is what this local demo
 # wants. Switch to `oidc` to give IDE clients a browser login flow.
 #
-# OAuth state is stored per-node, so `oidc` assumes a single replica: with more
-# than one, /callback may land on a replica that never saw the /authorize.
-#
 # auth:
 #   mode: oidc
 #   discovery_url: https://keycloak.example.com/realms/feast/.well-known/openid-configuration
 #   client_id: feast-mcp
 #   base_url: http://localhost:8000
+
+# Required for OIDC with more than one replica: /callback may otherwise land on
+# a replica that never saw the /authorize.
+#
+# session_storage:
+#   backend: redis          # redis | valkey | postgresql | mongodb | disk | memory
+#   options:
+#     url: redis://localhost:6379

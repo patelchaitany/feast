@@ -58,6 +58,7 @@ A `feast-mcp` console script is also installed. It is equivalent to `feast mcp`,
 * `--oidc-client-secret`: OIDC client secret
 * `--oidc-audience`: Expected OIDC token audience
 * `--base-url`: Public base URL of this server, used to build OAuth redirect URIs (default: `http://localhost:<port>`)
+* `--session-storage-backend`: Shared backend for OAuth state: `redis`, `valkey`, `postgresql`, `mongodb`, `disk`, or `memory`
 
 **Observability options:**
 * `--log-level`: Log level (default: `INFO`)
@@ -111,6 +112,10 @@ observability:
 #   audience: null
 #   base_url: https://mcp.example.com
 
+# session_storage:
+#   backend: redis          # redis | valkey | postgresql | mongodb | disk | memory
+#   options:
+#     url: redis://localhost:6379
 ```
 
 ### Environment variables
@@ -128,6 +133,7 @@ observability:
 | `FEAST_MCP_OIDC_CLIENT_SECRET` | `auth.client_secret` |
 | `FEAST_MCP_OIDC_AUDIENCE` | `auth.audience` |
 | `FEAST_MCP_BASE_URL` | `auth.base_url` |
+| `FEAST_MCP_SESSION_STORAGE_BACKEND` | `session_storage.backend` |
 | `FEAST_MCP_LOG_LEVEL` | `observability.level` |
 | `FEAST_MCP_LOG_FORMAT` | `observability.format` |
 | `FEAST_MCP_OTEL_ENDPOINT` | `observability.otel_endpoint` |
@@ -172,7 +178,7 @@ Two modes are supported:
 * **`passthrough`** (default): connections are accepted without a token. A token supplied by the client is still forwarded upstream. Use this for development, or when the client already holds a valid Feast token.
 * **`oidc`**: the server fronts an OIDC provider so that IDE clients such as Cursor and VS Code can complete a browser login flow. The resulting upstream token is forwarded on every tool call. Programmatic clients can also send OIDC provider tokens directly as bearer tokens, which are validated against the provider's JWKS. This mode requires `--oidc-discovery-url` and `--oidc-client-id`, typically the same values already configured as `auth.oidc_discovery_url` in `feature_store.yaml`.
 
-> **Note:** `oidc` mode assumes a single replica. The OAuth state store is FastMCP's default, which is per-node and on disk, so a callback routed to a different replica than the authorize request will fail. Run one replica, or use client affinity, until a shared state backend is supported.
+> **Note:** With `oidc` and more than one replica, set `session_storage.backend` to a shared backend. The default OAuth state store is per-node and on disk, so a callback routed to a different replica than the authorize request will fail.
 
 ### Kubernetes authentication
 
