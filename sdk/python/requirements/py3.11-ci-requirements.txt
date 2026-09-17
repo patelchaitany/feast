@@ -5677,9 +5677,9 @@ pymssql==2.4.1 \
     --hash=sha256:eaf899774605e79127cc9fcbcf9460192d7413562a28bfea6bf2c083b20bedd3 \
     --hash=sha256:f8a6cbfa40e1d1df29e79f343d280e9a72a8e2c73199dd4d7d0f13bcd2cb1365
     # via feast (pyproject.toml)
-pymysql==1.2.2 \
-    --hash=sha256:22314b466986ce23831dae89e980950db730291384ba3201da9a0a8177c295be \
-    --hash=sha256:26b81847ae4a6c0aace8bfd1575774d8e247957b46691550acd7c33084f96123
+pymysql==1.2.3 \
+    --hash=sha256:14f1c68e2ed859243ae5ca41ffbe677027fc46bc136a9f0be8a4e928e5e7415a \
+    --hash=sha256:d5b288529782e536ae171866df3ca9dc4f6cbfb3cc2f18e6f837fbb90dbc262b
     # via feast (pyproject.toml)
 pynacl==1.6.2 \
     --hash=sha256:018494d6d696ae03c7e656e5e74cdfd8ea1326962cc401bcf018f1ed8436811c \

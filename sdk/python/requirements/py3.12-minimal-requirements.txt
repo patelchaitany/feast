@@ -1039,6 +1039,8 @@ googleapis-common-protos[grpc]==1.75.3 \
     #   google-api-core
     #   grpc-google-iam-v1
     #   grpcio-status
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
 griffelib==2.3.0 \
     --hash=sha256:1b8f9cd525681c26b1d6d574faa1371651e8459ca51d209684f50b8096ae06e0 \
     --hash=sha256:7b0952caf5bca6afa4bb5ee8c6a2d183fe3f21b62efc5f6c7243cb2b26d2d115
@@ -1123,6 +1125,7 @@ grpcio==1.84.0 \
     #   grpcio-reflection
     #   grpcio-status
     #   milvus-lite
+    #   opentelemetry-exporter-otlp-proto-grpc
     #   pymilvus
 grpcio-health-checking==1.84.0 \
     --hash=sha256:3eab9b688e5e09bd1d584c296d3440358f11817388db87b807edd61f45b464d1 \
@@ -2127,12 +2130,43 @@ opentelemetry-api==1.44.0 \
     #   fastmcp-slim
     #   google-api-core
     #   google-cloud-bigtable
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
+opentelemetry-exporter-otlp==1.44.0 \
+    --hash=sha256:4a498fa8d8fd8be9e8e2d175fe5524a3fe581ccffadd8509db86526a5fb97051 \
+    --hash=sha256:af1cde7c33ea8ed624bf04ac49a885730fe44c1f1ad698656e592c38f70ce106
+    # via feast (pyproject.toml)
+opentelemetry-exporter-otlp-proto-common==1.44.0 \
+    --hash=sha256:9a9fe61bba73d802904bc989f1d6b4a7b1ee40f06c40e98d6f85af65aaebb694 \
+    --hash=sha256:dc87a5a5bc58f149a56d1547e4691588fa12994cdc3bc039a694ccb3375862ac
+    # via
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-proto-grpc==1.44.0 \
+    --hash=sha256:40d1ae9e03fcc36de3cbac610cc99f35894938bff9cfd90fc4ec68bd85448463 \
+    --hash=sha256:6a1a645ea182a2f59440c51fa8301d309f3324a8f9d65f8395584b064b67ee4e
+    # via opentelemetry-exporter-otlp
+opentelemetry-exporter-otlp-proto-http==1.44.0 \
+    --hash=sha256:838592fce774c1c8bb7b9a0a7facbfa82e17be5a8a4e94cef10cb84ae026bae3 \
+    --hash=sha256:c633d7270ad6b57cd4cfbe8b0007a9e2e7c0cb50bd6c50fe2a7b245f721a09d8
+    # via opentelemetry-exporter-otlp
+opentelemetry-proto==1.44.0 \
+    --hash=sha256:898b155a0e1557afd867478fb6158e8122a46329ca0bb8dc53cc55e98f017f56 \
+    --hash=sha256:c547a79c2f8c0c515d31509154682e5921c7cfd5ca67b70e1f9266e2c3e103f3
+    # via
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
 opentelemetry-sdk==1.44.0 \
     --hash=sha256:cebe7f65dc12f26ead75c6064de12fd2a9052e5060c0272d402cfa203aae123b \
     --hash=sha256:df081c4c6bcfdb1211e3e86140376792643128a25f8d72d1d27675936e7e96ad
-    # via google-cloud-bigtable
+    # via
+    #   feast (pyproject.toml)
+    #   google-cloud-bigtable
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
 opentelemetry-semantic-conventions==0.65b0 \
     --hash=sha256:1cacde7b0ad306f84c5ef08c3dbe1bbaf20165bba6f8bff43b670e555a086bcb \
     --hash=sha256:f9b2b81e9d5b64f11bc952075e7e9c7fb0aab075c7fd1c46d597f1b919852d60
@@ -2483,6 +2517,7 @@ protobuf==7.36.1 \
     #   grpcio-health-checking
     #   grpcio-reflection
     #   grpcio-status
+    #   opentelemetry-proto
     #   proto-plus
     #   pymilvus
 psutil==7.2.2 \
@@ -2756,9 +2791,9 @@ pymilvus==3.0.1 \
     --hash=sha256:c02389059088b18d6e598cd175541e445c772fab4926c5e527c4913be34887f1 \
     --hash=sha256:c5a8d5c1fa1de7b416e3529d383d8cc2e7da2170433ffa4a2d9087e14f70171a
     # via feast (pyproject.toml)
-pymysql==1.2.2 \
-    --hash=sha256:22314b466986ce23831dae89e980950db730291384ba3201da9a0a8177c295be \
-    --hash=sha256:26b81847ae4a6c0aace8bfd1575774d8e247957b46691550acd7c33084f96123
+pymysql==1.2.3 \
+    --hash=sha256:14f1c68e2ed859243ae5ca41ffbe677027fc46bc136a9f0be8a4e928e5e7415a \
+    --hash=sha256:d5b288529782e536ae171866df3ca9dc4f6cbfb3cc2f18e6f837fbb90dbc262b
     # via feast (pyproject.toml)
 pyopenssl==26.4.0 \
     --hash=sha256:28dfcce0162b9211413e26dfbfdf1d24317fbeba18fc93c12400a1856b2a0bc7 \
@@ -2901,6 +2936,7 @@ requests==2.34.2 \
     #   google-cloud-bigquery
     #   google-cloud-storage
     #   kubernetes
+    #   opentelemetry-exporter-otlp-proto-http
     #   pymilvus
     #   requests-oauthlib
     #   snowflake-connector-python
@@ -3282,6 +3318,8 @@ typing-extensions==4.16.0 \
     #   mcp
     #   mypy
     #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
     #   psycopg
