@@ -45,7 +45,7 @@ from fastmcp.server.dependencies import (
 )
 from starlette.authentication import AuthenticationError
 
-from feast.mcp.logging_config import get_logger
+from feast.mcp.observability import get_logger
 from feast.permissions.server.rest_token_extractor import RestTokenExtractor
 
 if TYPE_CHECKING:
