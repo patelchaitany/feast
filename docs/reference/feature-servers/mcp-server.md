@@ -13,7 +13,7 @@ The server is composed of two sub-servers, each mounted only when its upstream U
 
 At least one of the two must be configured, otherwise the server exits with a usage error.
 
-This is not the same as the [MCP Feature Server](mcp-feature-server.md), which sets `mcp_enabled: true` in `feature_store.yaml` to mount an OpenAPI-derived MCP endpoint inside the feature server process. The standalone server is a separate deployable that can front both the feature server and the registry at once, with its own tools, authentication mode, and logging settings. The two can be used together.
+This is not the same as the [MCP Feature Server](mcp-feature-server.md), which sets `mcp_enabled: true` in `feature_store.yaml` to mount an OpenAPI-derived MCP endpoint inside the feature server process. The standalone server is a separate deployable that can front both the feature server and the registry at once, with its own tools, authentication mode, and observability settings. The two can be used together.
 
 ## Installation
 
@@ -21,7 +21,13 @@ This is not the same as the [MCP Feature Server](mcp-feature-server.md), which s
 pip install 'feast[mcp-server]'
 ```
 
-The `minimal` extra pulls in `mcp-server`, so the published `feature-server` image already includes `feast mcp`.
+For OTLP log and trace export, install the `mcp-server-otel` extra instead:
+
+```bash
+pip install 'feast[mcp-server-otel]'
+```
+
+The `minimal` extra pulls in `mcp-server-otel`, so the published `feature-server` image already includes `feast mcp` and the OTLP exporters.
 
 ## CLI
 
@@ -52,10 +58,14 @@ A `feast-mcp` console script is also installed. It is equivalent to `feast mcp`,
 * `--oidc-client-secret`: OIDC client secret
 * `--oidc-audience`: Expected OIDC token audience
 * `--base-url`: Public base URL of this server, used to build OAuth redirect URIs (default: `http://localhost:<port>`)
+* `--session-storage-backend`: Shared backend for OAuth state: `redis`, `valkey`, `postgresql`, `mongodb`, `disk`, or `memory`
 
-**Logging options:**
+**Observability options:**
 * `--log-level`: Log level (default: `INFO`)
 * `--log-format`: Console log format, `text` or `json` (default: `text`)
+* `--otel-endpoint`: OTLP endpoint for log and span export. Setting it enables OTEL export
+* `--otel-protocol`: OTLP protocol, `grpc` or `http` (default: `grpc`)
+* `--otel-service-name`: `service.name` reported to OTEL (default: `feast-mcp`)
 
 ## Endpoints
 
@@ -90,6 +100,9 @@ timeout: 30
 observability:
   level: INFO               # DEBUG | INFO | WARNING | ERROR
   format: json              # text | json
+  # otel_endpoint: http://localhost:4317
+  # otel_protocol: grpc     # grpc | http
+  # otel_service_name: feast-mcp
 
 # auth:
 #   mode: oidc              # passthrough | oidc
@@ -98,6 +111,11 @@ observability:
 #   client_secret: null
 #   audience: null
 #   base_url: https://mcp.example.com
+
+# session_storage:
+#   backend: redis          # redis | valkey | postgresql | mongodb | disk | memory
+#   options:
+#     url: redis://localhost:6379
 ```
 
 ### Environment variables
@@ -115,8 +133,14 @@ observability:
 | `FEAST_MCP_OIDC_CLIENT_SECRET` | `auth.client_secret` |
 | `FEAST_MCP_OIDC_AUDIENCE` | `auth.audience` |
 | `FEAST_MCP_BASE_URL` | `auth.base_url` |
+| `FEAST_MCP_SESSION_STORAGE_BACKEND` | `session_storage.backend` |
 | `FEAST_MCP_LOG_LEVEL` | `observability.level` |
 | `FEAST_MCP_LOG_FORMAT` | `observability.format` |
+| `FEAST_MCP_OTEL_ENDPOINT` | `observability.otel_endpoint` |
+| `FEAST_MCP_OTEL_PROTOCOL` | `observability.otel_protocol` |
+| `FEAST_MCP_OTEL_SERVICE_NAME` | `observability.otel_service_name` |
+
+The OTEL variables fall back to the standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_SERVICE_NAME`, so existing OpenTelemetry tooling continues to work.
 
 > **Note:** `server.host` and `server.port` have no environment equivalent. They can only be set on the command line or in the config file.
 
@@ -154,7 +178,7 @@ Two modes are supported:
 * **`passthrough`** (default): connections are accepted without a token. A token supplied by the client is still forwarded upstream. Use this for development, or when the client already holds a valid Feast token.
 * **`oidc`**: the server fronts an OIDC provider so that IDE clients such as Cursor and VS Code can complete a browser login flow. The resulting upstream token is forwarded on every tool call. Programmatic clients can also send OIDC provider tokens directly as bearer tokens, which are validated against the provider's JWKS. This mode requires `--oidc-discovery-url` and `--oidc-client-id`, typically the same values already configured as `auth.oidc_discovery_url` in `feature_store.yaml`.
 
-> **Note:** `oidc` mode assumes a single replica. The OAuth state store is FastMCP's default, which is per-node and on disk, so a callback routed to a different replica than the authorize request will fail. Run one replica, or use client affinity, until a shared state backend is supported.
+> **Note:** With `oidc` and more than one replica, set `session_storage.backend` to a shared backend. The default OAuth state store is per-node and on disk, so a callback routed to a different replica than the authorize request will fail.
 
 ### Kubernetes authentication
 

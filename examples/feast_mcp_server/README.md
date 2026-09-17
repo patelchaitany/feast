@@ -13,14 +13,14 @@ See the [Standalone MCP server](../../docs/reference/feature-servers/mcp-server.
 
 ## Files
 
-- [feast_mcp.yaml](feast_mcp.yaml): MCP server configuration, covering transport, upstream URLs, authentication, and logging.
+- [feast_mcp.yaml](feast_mcp.yaml): MCP server configuration, covering transport, upstream URLs, authentication, and observability.
 - [mcp_client_demo.py](mcp_client_demo.py): A minimal MCP client that lists the available tools and calls one from each namespace.
 - [kubernetes/featurestore-mcpserver.yaml](kubernetes/featurestore-mcpserver.yaml): The same deployment on Kubernetes, using the Feast Operator.
 
 ## Prerequisites
 
 1. **Python 3.10+ environment**
-2. **Feast with the MCP server extra**: `pip install 'feast[mcp-server]'`.
+2. **Feast with the MCP server extra**: `pip install 'feast[mcp-server]'`. Use `feast[mcp-server-otel]` instead if you also want OTLP log and trace export.
 
 ## Setup
 
@@ -170,7 +170,7 @@ To give IDE clients a browser login flow, switch to OIDC. This is usually config
 feast mcp --config feast_mcp.yaml --auth-mode oidc --oidc-discovery-url https://keycloak.example.com/realms/feast/.well-known/openid-configuration --oidc-client-id feast-mcp --base-url http://localhost:8000
 ```
 
-> **Note:** Run a single replica with `oidc`. The OAuth state store is per-node and on disk, so a callback routed to a replica that did not handle the authorize request will fail.
+> **Note:** With more than one replica, also set `session_storage.backend` to a shared backend such as `redis`, `valkey`, `postgresql`, or `mongodb`. The default OAuth state store is per-node and on disk, so a callback routed to a replica that did not handle the authorize request will fail.
 
 ### Kubernetes authentication
 

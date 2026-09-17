@@ -463,6 +463,11 @@ hatchling==1.32.0 \
     #   jsonschema-specifications
     #   mcp
     #   opentelemetry-api
+    #   opentelemetry-exporter-otlp
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
+    #   opentelemetry-proto
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
     #   platformdirs
@@ -1139,6 +1144,7 @@ tomli==2.4.1 \
     #   scikit-build-core
     #   setuptools-git-versioning
     #   setuptools-scm
+    #   vcs-versioning
     #   versioneer
     #   yarl
 tomlkit==0.15.1 \

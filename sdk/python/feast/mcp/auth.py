@@ -30,8 +30,9 @@ from fastmcp.server.dependencies import (
     get_access_token,
     get_http_request,
 )
+from key_value.aio.protocols import AsyncKeyValue
 
-from feast.mcp.logging_config import get_logger
+from feast.mcp.observability import get_logger
 
 logger = get_logger(__name__)
 
@@ -74,14 +75,24 @@ def create_oidc_auth(
     client_secret: Optional[str] = None,
     base_url: str,
     audience: Optional[str] = None,
+    client_storage: Optional[AsyncKeyValue] = None,
 ) -> FeastOIDCProxy:
-    """Build the OIDC proxy."""
+    """Build the OIDC proxy.
+
+    Args:
+        client_storage: Shared ``AsyncKeyValue`` backend for OAuth state
+            (client registrations, transactions, codes, token mappings).
+            Pass a distributed store (Redis, etc.) to keep the OAuth flow
+            working across replicas behind a load balancer. When ``None``,
+            FastMCP falls back to its default on-disk, per-node store.
+    """
     return FeastOIDCProxy(
         config_url=discovery_url,
         client_id=client_id,
         client_secret=client_secret,
         base_url=base_url,
         audience=audience,
+        client_storage=client_storage,
     )
 
 

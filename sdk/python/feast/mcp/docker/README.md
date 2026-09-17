@@ -6,9 +6,10 @@ entrypoint *is* the server.
 ## Build
 
 A thin wrapper over the published `feature-server` image. That image installs
-`feast[minimal]`, which pulls `mcp-server` — FastMCP and friends — so
-everything `feast mcp` needs is already present. This image only sets the
-entrypoint, and inherits the UBI base and the arbitrary-uid permission setup.
+`feast[minimal]`, which pulls `mcp-server-otel` — FastMCP and the OTLP
+exporters — so everything `feast mcp` needs is already present. This image
+only sets the entrypoint, and inherits the UBI base and the arbitrary-uid
+permission setup.
 
 ```bash
 docker buildx build -f sdk/python/feast/mcp/docker/Dockerfile -t feast-mcp:0.66.0 --load .
@@ -28,7 +29,7 @@ docker buildx build -f sdk/python/feast/mcp/docker/Dockerfile \
 Add `--platform linux/amd64,linux/arm64 --push` for a multi-arch build.
 
 The base tag must be a feature-server build whose `minimal` extra already
-includes `mcp-server`; older tags have no `feast mcp` command.
+includes `mcp-server-otel`; older tags have no `feast mcp` command.
 
 ## Configuration
 
@@ -111,9 +112,9 @@ Four things that are easy to get wrong:
   server, so `features.url` has to be the Feast Service's cluster DNS name.
   `localhost` only works in the Feast-operator sidecar model.
 - **`mcp.stateless: true` drops the Service's ClientIP affinity.** Fine for
-  `auth.mode: passthrough`, but `auth.mode: oidc` keeps its authorize/callback
-  state per-node, so a callback can land on a replica that never saw the
-  authorize. Keep the affinity and a single replica for OIDC.
+  `auth.mode: passthrough`, but with `auth.mode: oidc` and more than one replica
+  the OAuth authorize/callback state needs a shared `session_storage` backend,
+  or a callback can land on a replica that never saw the authorize.
 
 If you would rather keep the config path out of the image, set it explicitly —
 `config.arguments` replaces the default `CMD`:

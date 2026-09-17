@@ -24,17 +24,25 @@ timeout: 30
 observability:
   level: INFO               # DEBUG | INFO | WARNING | ERROR
   format: text              # text | json
+  # otel_endpoint: http://localhost:4317
+  # otel_protocol: grpc     # grpc | http
+  # otel_service_name: feast-mcp
 
 # The MCP server enforces no RBAC of its own -- it forwards the caller's bearer
 # token to Feast, which applies its own permission model. `passthrough` (the
 # default) accepts connections without a token, which is what this local demo
 # wants. Switch to `oidc` to give IDE clients a browser login flow.
 #
-# OAuth state is stored per-node, so `oidc` assumes a single replica: with more
-# than one, /callback may land on a replica that never saw the /authorize.
-#
 # auth:
 #   mode: oidc
 #   discovery_url: https://keycloak.example.com/realms/feast/.well-known/openid-configuration
 #   client_id: feast-mcp
 #   base_url: http://localhost:8000
+
+# Required for OIDC with more than one replica: /callback may otherwise land on
+# a replica that never saw the /authorize.
+#
+# session_storage:
+#   backend: redis          # redis | valkey | postgresql | mongodb | disk | memory
+#   options:
+#     url: redis://localhost:6379
