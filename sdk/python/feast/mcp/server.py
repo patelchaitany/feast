@@ -77,6 +77,29 @@ def _mount_servers(mcp: FastMCP, cfg: Config) -> None:
         logger.info("Registry tools mounted from %s", cfg.registry.url)
 
 
+def _build_session_store(cfg: Config):
+    """Build the shared OAuth-state store, or None to use FastMCP's default."""
+    if not cfg.session_storage.backend:
+        return None
+
+    from feast.mcp.session_storage import (
+        SessionStorageConfigFactory,
+        build_store,
+    )
+
+    storage_cfg = SessionStorageConfigFactory.create(
+        cfg.session_storage.backend, cfg.session_storage.options
+    )
+    if not storage_cfg.shared:
+        logger.warning(
+            "Session storage backend %r is not shared across processes; "
+            "the OAuth flow may break behind a load balancer with >1 replica.",
+            storage_cfg.backend,
+        )
+    logger.info("OAuth client_storage backend: %s", storage_cfg.backend)
+    return build_store(storage_cfg)
+
+
 def _configure_auth(mcp: FastMCP, cfg: Config) -> None:
     # click.Choice only guards --auth-mode. A typo in FEAST_MCP_AUTH_MODE or
     # auth.mode must stop startup, not fall through to passthrough.
@@ -104,6 +127,7 @@ def _configure_auth(mcp: FastMCP, cfg: Config) -> None:
         client_secret=cfg.auth.client_secret,
         base_url=base_url,
         audience=cfg.auth.audience,
+        client_storage=_build_session_store(cfg),
     )
 
 
@@ -297,6 +321,15 @@ def run_server(
     "--base-url",
     default=None,
     help="Public base URL of this server, used to build OAuth redirect URIs.",
+)
+@click.option(
+    "--session-storage-backend",
+    default=None,
+    help=(
+        "Shared backend for OAuth state (redis, valkey, postgresql, mongodb, "
+        "disk, memory). Backend options come from feast_mcp.yaml. Required for "
+        "OIDC auth behind a load balancer with >1 replica."
+    ),
 )
 # --- observability ---
 @click.option("--log-level", default=None, help="Log level.  [default: INFO]")
