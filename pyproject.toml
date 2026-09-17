@@ -147,12 +147,21 @@ mcp = ["fastapi_mcp", "mcp>=1.0,<1.30"]
 # proxies to a running feature server / registry server. Deliberately separate
 # from the `mcp` extra above: that one powers the in-process fastapi_mcp
 # endpoint on `feast serve`, a different server built on different libraries.
-# `minimal` pulls this one in as well, because the feast-mcp image is built
-# FROM the feature-server image and runs `feast mcp` as its entrypoint.
+# `minimal` pulls this in as well (via mcp-server-otel), because the feast-mcp
+# image is built FROM the feature-server image and runs `feast mcp` as its
+# entrypoint.
 mcp-server = [
     "fastmcp>=3.0",
     "httpx>=0.24",
     "python-dotenv>=1.0",
+]
+# Adds OTLP log/span export to `feast mcp`. Without these the server still
+# runs and still correlates its logs, using a generated per-request id in
+# place of a real trace id.
+mcp-server-otel = [
+    "feast[mcp-server]",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp>=1.20",
 ]
 mlflow = ["mlflow>=2.10.0"]
 
@@ -215,7 +224,7 @@ nlp = ["feast[docling, image, milvus, pytorch, rag]"]
 dev = ["feast[ci]"]
 docs = ["feast[ci]"]
 # used for the 'feature-server' container image build
-minimal = ["feast[aws, gcp, snowflake, redis, go, mysql, postgres-c, opentelemetry, grpcio, k8s, duckdb, mcp, milvus, mcp-server]"]
+minimal = ["feast[aws, gcp, snowflake, redis, go, mysql, postgres-c, opentelemetry, grpcio, k8s, duckdb, mcp, milvus, mcp-server-otel]"]
 minimal-sdist-build = [
     "feast[minimal]",
     "feast[ibis]",

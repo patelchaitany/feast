@@ -24,6 +24,9 @@ timeout: 30
 observability:
   level: INFO               # DEBUG | INFO | WARNING | ERROR
   format: text              # text | json
+  # otel_endpoint: http://localhost:4317
+  # otel_protocol: grpc     # grpc | http
+  # otel_service_name: feast-mcp
 
 # The MCP server enforces no RBAC of its own -- it forwards the caller's bearer
 # token to Feast, which applies its own permission model. `passthrough` (the

@@ -6,9 +6,10 @@ entrypoint *is* the server.
 ## Build
 
 A thin wrapper over the published `feature-server` image. That image installs
-`feast[minimal]`, which pulls `mcp-server` — FastMCP and friends — so
-everything `feast mcp` needs is already present. This image only sets the
-entrypoint, and inherits the UBI base and the arbitrary-uid permission setup.
+`feast[minimal]`, which pulls `mcp-server-otel` — FastMCP and the OTLP
+exporters — so everything `feast mcp` needs is already present. This image
+only sets the entrypoint, and inherits the UBI base and the arbitrary-uid
+permission setup.
 
 ```bash
 docker buildx build -f sdk/python/feast/mcp/docker/Dockerfile -t feast-mcp:0.66.0 --load .
@@ -28,7 +29,7 @@ docker buildx build -f sdk/python/feast/mcp/docker/Dockerfile \
 Add `--platform linux/amd64,linux/arm64 --push` for a multi-arch build.
 
 The base tag must be a feature-server build whose `minimal` extra already
-includes `mcp-server`; older tags have no `feast mcp` command.
+includes `mcp-server-otel`; older tags have no `feast mcp` command.
 
 ## Configuration
 

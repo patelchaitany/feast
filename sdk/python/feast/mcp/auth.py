@@ -31,7 +31,7 @@ from fastmcp.server.dependencies import (
     get_http_request,
 )
 
-from feast.mcp.logging_config import get_logger
+from feast.mcp.observability import get_logger
 
 logger = get_logger(__name__)
 

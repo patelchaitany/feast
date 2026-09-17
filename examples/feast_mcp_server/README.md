@@ -13,14 +13,14 @@ See the [Standalone MCP server](../../docs/reference/feature-servers/mcp-server.
 
 ## Files
 
-- [feast_mcp.yaml](feast_mcp.yaml): MCP server configuration, covering transport, upstream URLs, authentication, and logging.
+- [feast_mcp.yaml](feast_mcp.yaml): MCP server configuration, covering transport, upstream URLs, authentication, and observability.
 - [mcp_client_demo.py](mcp_client_demo.py): A minimal MCP client that lists the available tools and calls one from each namespace.
 - [kubernetes/featurestore-mcpserver.yaml](kubernetes/featurestore-mcpserver.yaml): The same deployment on Kubernetes, using the Feast Operator.
 
 ## Prerequisites
 
 1. **Python 3.10+ environment**
-2. **Feast with the MCP server extra**: `pip install 'feast[mcp-server]'`.
+2. **Feast with the MCP server extra**: `pip install 'feast[mcp-server]'`. Use `feast[mcp-server-otel]` instead if you also want OTLP log and trace export.
 
 ## Setup
 

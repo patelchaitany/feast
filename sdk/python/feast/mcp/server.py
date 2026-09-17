@@ -27,9 +27,19 @@ from starlette.responses import JSONResponse
 from feast.mcp.auth import create_oidc_auth
 from feast.mcp.client import FeastClient
 from feast.mcp.config import Config, load_config
-from feast.mcp.logging_config import configure_logging, load_logging_config
+from feast.mcp.observability import (
+    RequestTracingMiddleware,
+    configure_logging,
+    configure_tracing,
+    load_logging_config,
+    shutdown_logging,
+    shutdown_tracing,
+)
 
 logger = logging.getLogger(__name__)
+
+#: Tracer used to open a span per HTTP request (None when OTEL is off/absent).
+_tracer = None
 
 mcp = FastMCP(
     "feast",
@@ -80,7 +90,10 @@ def _build_http_app(cfg: Config):
         kwargs = {"path": "/sse", "transport": "sse"}
     else:
         kwargs = {"path": "/mcp", "transport": cfg.server.transport}
-    return mcp.http_app(**kwargs)  # type: ignore[arg-type]
+    app = mcp.http_app(**kwargs)  # type: ignore[arg-type]
+    # Outermost layer so the request span is active for the whole request and
+    # every downstream log line is correlated to one trace id.
+    return RequestTracingMiddleware(app, tracer=_tracer)
 
 
 def _run_uvicorn(cfg: Config) -> None:
@@ -130,7 +143,11 @@ def run_server(
     cli_args = cli_args or {}
 
     # Configure logging first so all subsequent setup is visible.
-    configure_logging(load_logging_config(config_path=config_path, cli_args=cli_args))
+    log_cfg = load_logging_config(config_path=config_path, cli_args=cli_args)
+    configure_logging(log_cfg)
+    # Set up tracing so each request gets a span (and trace-correlated logs).
+    global _tracer
+    _tracer = configure_tracing(log_cfg)
 
     cfg = load_config(config_path=config_path, cli_args=cli_args)
 
@@ -160,16 +177,20 @@ def run_server(
     _configure_auth(cfg)
 
     # --- Run ---
-    if cfg.server.transport == "stdio":
-        mcp.run(transport="stdio")
-    elif cfg.server.workers:
-        _run_gunicorn(cfg)
-    else:
-        _run_uvicorn(cfg)
+    try:
+        if cfg.server.transport == "stdio":
+            mcp.run(transport="stdio")
+        elif cfg.server.workers:
+            _run_gunicorn(cfg)
+        else:
+            _run_uvicorn(cfg)
+    finally:
+        shutdown_tracing()
+        shutdown_logging()
 
 
 # Every option below defaults to ``None`` on purpose. Real defaults live in
-# ``feast.mcp.config`` / ``feast.mcp.logging_config``; declaring them
+# ``feast.mcp.config`` / ``feast.mcp.observability.config``; declaring them
 # here would put the value into ``cli_args`` unconditionally and stop
 # ``feast_mcp.yaml`` and the environment from ever taking effect. Defaults are
 # therefore documented in the help text instead of via ``show_default``.
@@ -234,13 +255,32 @@ def run_server(
     default=None,
     help="Public base URL of this server, used to build OAuth redirect URIs.",
 )
-# --- logging ---
+# --- observability ---
 @click.option("--log-level", default=None, help="Log level.  [default: INFO]")
 @click.option(
     "--log-format",
     type=click.Choice(["text", "json"]),
     default=None,
     help="Console log format.  [default: text]",
+)
+@click.option(
+    "--otel-endpoint",
+    default=None,
+    help=(
+        "OTLP endpoint for log and span export (enables OTEL when set), "
+        "e.g. http://localhost:4317"
+    ),
+)
+@click.option(
+    "--otel-protocol",
+    type=click.Choice(["grpc", "http"]),
+    default=None,
+    help="OTLP protocol.  [default: grpc]",
+)
+@click.option(
+    "--otel-service-name",
+    default=None,
+    help="service.name reported to OTEL.  [default: feast-mcp]",
 )
 def mcp_cli(config: Optional[str], **options: object) -> None:
     """Run the Feast MCP server.
