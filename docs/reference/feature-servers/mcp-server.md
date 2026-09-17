@@ -58,6 +58,7 @@ A `feast-mcp` console script is also installed. It is equivalent to `feast mcp`,
 * `--oidc-client-secret`: OIDC client secret
 * `--oidc-audience`: Expected OIDC token audience
 * `--base-url`: Public base URL of this server, used to build OAuth redirect URIs (default: `http://localhost:<port>`)
+* `--session-storage-backend`: Shared backend for OAuth state: `redis`, `valkey`, `postgresql`, `mongodb`, `disk`, or `memory`
 
 **Observability options:**
 * `--log-level`: Log level (default: `INFO`)
@@ -112,6 +113,10 @@ observability:
 #   audience: null
 #   base_url: https://mcp.example.com
 
+# session_storage:
+#   backend: redis          # redis | valkey | postgresql | mongodb | disk | memory
+#   options:
+#     url: redis://localhost:6379
 ```
 
 ### Environment variables
@@ -129,6 +134,7 @@ observability:
 | `FEAST_MCP_OIDC_CLIENT_SECRET` | `auth.client_secret` |
 | `FEAST_MCP_OIDC_AUDIENCE` | `auth.audience` |
 | `FEAST_MCP_BASE_URL` | `auth.base_url` |
+| `FEAST_MCP_SESSION_STORAGE_BACKEND` | `session_storage.backend` |
 | `FEAST_MCP_LOG_LEVEL` | `observability.level` |
 | `FEAST_MCP_LOG_FORMAT` | `observability.format` |
 | `FEAST_MCP_LOG_STDIO` | `observability.stdio` |
@@ -177,7 +183,7 @@ There are three modes. They use the same names as the `auth.type` values in `fea
 
 Mode names are case-sensitive. The server refuses to start with an unknown mode, whether it comes from `--auth-mode`, `FEAST_MCP_AUTH_MODE` or `auth.mode` in YAML, so a typo can never switch authentication off.
 
-> **Note:** `oidc` mode assumes a single replica. The OAuth state store is FastMCP's default, which is per-node and on disk, so a callback routed to a different replica than the authorize request will fail. Run one replica, or use client affinity, until a shared state backend is supported.
+> **Note:** With `oidc` and more than one replica, set `session_storage.backend` to a shared backend. The default OAuth state store is per-node and on disk, so a callback routed to a different replica than the authorize request will fail.
 
 ### Kubernetes authentication
 
