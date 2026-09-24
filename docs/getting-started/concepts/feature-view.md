@@ -83,6 +83,10 @@ user_interactions = FeatureView(
 )
 ```
 
+When you run `feast materialize` or `feast materialize-incremental`, a sequence-mode feature view keeps every event in the time range, not only the latest one per entity. Feast keeps the newest `max_length` events per entity and appends them to the online store. The online store then drops events older than `max_age` and keeps the newest `max_length` for each entity it writes to. Running the same time range again adds no duplicates.
+
+Materializing sequence-mode feature views works with the local, Ray, Spark and Flink compute engines, and needs an online store that supports append writes (currently Redis). Other combinations fail before any data is read.
+
 {% hint style="warning" %}
 Sequence configuration is currently an experimental registry contract. Online stores continue to use their existing latest-value behavior until they explicitly implement sequence append, retrieval, and eviction support.
 {% endhint %}

@@ -99,6 +99,10 @@ class FlinkComputeEngine(ComputeEngine):
         """Flink compute engine does not tear down Feast-managed infrastructure."""
         pass
 
+    @property
+    def supports_append_materialization(self) -> bool:
+        return True
+
     def _materialize_one(
         self, registry: BaseRegistry, task: MaterializationTask, **kwargs
     ) -> MaterializationJob:
