@@ -32,6 +32,7 @@ from feast.infra.ray_initializer import (
     get_ray_wrapper,
 )
 from feast.infra.registry.base_registry import BaseRegistry
+from feast.online_config import uses_append_write_mode
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,10 @@ class RayComputeEngine(ComputeEngine):
         """Ray compute engine doesn't require infrastructure teardown."""
         pass
 
+    @property
+    def supports_append_materialization(self) -> bool:
+        return True
+
     def _materialize_one(
         self,
         registry: BaseRegistry,
@@ -100,6 +105,12 @@ class RayComputeEngine(ComputeEngine):
         job_id = f"{task.feature_view.name}-{task.start_time}-{task.end_time}"
 
         if from_offline_store:
+            if uses_append_write_mode(task.feature_view):
+                raise ValueError(
+                    f"Feature view {task.feature_view.name} uses online_config "
+                    "mode='sequence', which the legacy from_offline_store path "
+                    "doesn't support."
+                )
             logger.warning(
                 "Materializing from offline store will be deprecated. "
                 "Please use the new materialization API."

@@ -15,9 +15,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from feast.protos.feast.core.FeatureView_pb2 import OnlineConfig as OnlineConfigProto
+
+
+def uses_append_write_mode(feature_view: Any) -> bool:
+    """Return True if online writes for this feature view must use online_append."""
+    online_config = getattr(feature_view, "online_config", None)
+    return online_config is not None and online_config.write_mode == "append"
 
 
 @dataclass

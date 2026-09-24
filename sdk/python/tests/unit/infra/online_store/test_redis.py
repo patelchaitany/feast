@@ -1,4 +1,5 @@
 import asyncio
+import struct
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -635,10 +636,13 @@ def _append_client_and_pipe():
     return client, pipe
 
 
-def test_online_append_keeps_each_value_for_an_entity(
+def test_online_append_keeps_each_event_for_an_entity(
     redis_online_store: RedisOnlineStore, feature_view
 ):
-    """Each different value is kept. A repeated value moves to its newer time."""
+    """Each event is kept, even when its values repeat an earlier event.
+
+    An event with the same time and values as another is stored once.
+    """
     feature_view.online_config = OnlineConfig(
         mode="sequence", max_length=10, write_mode="append"
     )
@@ -648,6 +652,7 @@ def test_online_append_keeps_each_value_for_an_entity(
             (start, 1),
             (start + timedelta(seconds=1), 2),
             (start + timedelta(seconds=2), 3),
+            (start + timedelta(seconds=3), 1),
             (start + timedelta(seconds=3), 1),
         ]
     )
@@ -661,11 +666,13 @@ def test_online_append_keeps_each_value_for_an_entity(
     key, events = pipe.zadd.call_args.args
     assert key.startswith(b"seq:feature_view_1:")
     start_micros = int(start.timestamp()) * 1_000_000
-    values_by_offset = {
-        score - start_micros: MapProto.FromString(member).val["feature_10"].int32_val
-        for member, score in events.items()
-    }
-    assert values_by_offset == {1_000_000: 2, 2_000_000: 3, 3_000_000: 1}
+    values_by_offset = {}
+    for member, score in events.items():
+        (member_micros,) = struct.unpack(">q", member[:8])
+        assert member_micros == score
+        values = MapProto.FromString(member[8:])
+        values_by_offset[score - start_micros] = values.val["feature_10"].int32_val
+    assert values_by_offset == {0: 1, 1_000_000: 2, 2_000_000: 3, 3_000_000: 1}
     pipe.zremrangebyrank.assert_called_once_with(key, 0, -11)
     pipe.zremrangebyscore.assert_not_called()
     pipe.expire.assert_not_called()
