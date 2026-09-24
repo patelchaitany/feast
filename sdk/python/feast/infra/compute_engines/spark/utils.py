@@ -9,6 +9,7 @@ from pyspark import SparkConf
 from pyspark.sql import SparkSession
 
 from feast.infra.common.serde import SerializedArtifacts
+from feast.infra.compute_engines.utils import write_rows_to_online_store
 from feast.utils import _convert_arrow_to_proto, _run_pyarrow_field_mapping
 
 try:
@@ -158,9 +159,10 @@ def map_in_arrow(
                     sub_batch, feature_view, join_key_to_value_type
                 )
 
-                online_store.online_write_batch(
+                write_rows_to_online_store(
+                    online_store,
                     config=repo_config,
-                    table=feature_view,
+                    feature_view=feature_view,
                     data=rows_to_write,
                     progress=lambda x: None,
                 )

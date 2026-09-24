@@ -172,6 +172,7 @@ class SparkReadNode(DAGNode):
         spark_session: SparkSession,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
+        pull_all: bool = False,
     ):
         super().__init__(name)
         self.source = source
@@ -179,6 +180,7 @@ class SparkReadNode(DAGNode):
         self.spark_session = spark_session
         self.start_time = start_time
         self.end_time = end_time
+        self.pull_all = pull_all
 
     def execute(self, context: ExecutionContext) -> DAGValue:
         retrieval_job = create_offline_store_retrieval_job(
@@ -187,6 +189,7 @@ class SparkReadNode(DAGNode):
             context=context,
             start_time=self.start_time,
             end_time=self.end_time,
+            pull_all=self.pull_all,
         )
         if isinstance(retrieval_job, SparkRetrievalJob):
             spark_df = cast(SparkRetrievalJob, retrieval_job).to_spark_df()
@@ -518,17 +521,20 @@ class SparkDedupNode(DAGNode):
         column_info: ColumnInfo,
         spark_session: SparkSession,
         inputs=None,
+        keep: int = 1,
     ):
         super().__init__(name, inputs=inputs)
         self.column_info = column_info
         self.spark_session = spark_session
+        self.keep = keep
 
     def execute(self, context: ExecutionContext) -> DAGValue:
         input_value = self.get_single_input_value(context)
         input_value.assert_format(DAGFormat.SPARK)
         input_df: DataFrame = input_value.data
 
-        # Dedup based on join keys and event timestamp column
+        # Dedup based on join keys and event timestamp column, keeping the
+        # newest `keep` rows per entity
         # Dedup with row_number
         partition_cols = self.column_info.join_keys
         deduped_df = input_df
@@ -540,7 +546,7 @@ class SparkDedupNode(DAGNode):
             window = Window.partitionBy(*partition_cols).orderBy(*ordering)
             deduped_df = (
                 input_df.withColumn("row_num", F.row_number().over(window))
-                .filter("row_num = 1")
+                .filter(F.col("row_num") <= self.keep)
                 .drop("row_num")
             )
 

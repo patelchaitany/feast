@@ -40,10 +40,12 @@ class PolarsBackend(DataFrameBackend):
         keys: list[str],
         sort_by: list[str],
         ascending: bool = False,
+        keep: int = 1,
     ) -> pl.DataFrame:
-        return df.sort(by=sort_by, descending=not ascending).unique(
-            subset=keys, keep="first"
-        )
+        df = df.sort(by=sort_by, descending=not ascending)
+        if keep == 1:
+            return df.unique(subset=keys, keep="first")
+        return df.filter(pl.int_range(pl.len()).over(keys) < keep)
 
     def rename_columns(self, df: pl.DataFrame, columns: dict[str, str]) -> pl.DataFrame:
         return df.rename(columns)

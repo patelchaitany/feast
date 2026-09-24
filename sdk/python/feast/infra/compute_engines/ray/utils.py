@@ -11,6 +11,7 @@ import pyarrow as pa
 
 from feast.batch_feature_view import BatchFeatureView
 from feast.feature_view import FeatureView
+from feast.infra.compute_engines.utils import write_rows_to_online_store
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.repo_config import RepoConfig
 from feast.stream_feature_view import StreamFeatureView
@@ -64,9 +65,10 @@ def write_to_online_store(
             )
 
             if rows_to_write:
-                online_store.online_write_batch(
+                write_rows_to_online_store(
+                    online_store,
                     config=repo_config,
-                    table=feature_view,
+                    feature_view=feature_view,
                     data=rows_to_write,
                     progress=lambda x: None,
                 )
@@ -151,9 +153,10 @@ def write_to_online_store_from_ray_ds(
             batch, feature_view, join_key_to_value_type
         )
         if rows_to_write:
-            online_store.online_write_batch(
+            write_rows_to_online_store(
+                online_store,
                 config=repo_config,
-                table=feature_view,
+                feature_view=feature_view,
                 data=rows_to_write,
                 progress=lambda x: None,
             )
