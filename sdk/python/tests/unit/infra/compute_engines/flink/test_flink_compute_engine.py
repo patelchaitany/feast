@@ -197,9 +197,12 @@ class FakeTableEnvironment:
         sort_keys = [
             column for column in ["event_timestamp", "created"] if column in df
         ]
+        keep_match = re.search(r"WHERE `[^`]+` <= (\d+)$", query)
+        keep = int(keep_match.group(1)) if keep_match else 1
         return (
             df.sort_values(by=sort_keys, ascending=False)
-            .drop_duplicates(subset=dedup_keys)
+            .groupby(dedup_keys, sort=False)
+            .head(keep)
             .reset_index(drop=True)
         )
 
@@ -1062,6 +1065,47 @@ def test_flink_dedup_node_uses_entity_row_id_for_historical_retrieval(
     result = node.execute(context).data.to_pandas().sort_values(ENTITY_ROW_ID)
 
     assert result["conv_rate"].tolist() == [0.2, 0.3]
+
+
+def test_flink_dedup_node_keeps_newest_rows_per_entity(tmp_path: Path) -> None:
+    input_node = InputNode("input")
+    node = FlinkDedupNode(
+        "dedup",
+        _column_info(),
+        FakeTableEnvironment(),
+        split_num=1,
+        inputs=[input_node],
+        keep=2,
+    )
+    context = _execution_context(
+        tmp_path,
+        {
+            "input": _flink_value(
+                pd.DataFrame(
+                    {
+                        "driver_id": [1, 1, 1, 2],
+                        "event_timestamp": [
+                            datetime(2024, 1, 1, 8, 0, 0),
+                            datetime(2024, 1, 1, 9, 0, 0),
+                            datetime(2024, 1, 1, 10, 0, 0),
+                            datetime(2024, 1, 1, 10, 0, 0),
+                        ],
+                        "created": [
+                            datetime(2024, 1, 1, 8, 1, 0),
+                            datetime(2024, 1, 1, 9, 1, 0),
+                            datetime(2024, 1, 1, 10, 1, 0),
+                            datetime(2024, 1, 1, 10, 1, 0),
+                        ],
+                        "conv_rate": [0.1, 0.2, 0.3, 0.4],
+                    }
+                )
+            )
+        },
+    )
+
+    result = node.execute(context).data.to_pandas()
+
+    assert sorted(result["conv_rate"].tolist()) == [0.2, 0.3, 0.4]
 
 
 def test_flink_dedup_node_uses_native_row_number_when_available(
