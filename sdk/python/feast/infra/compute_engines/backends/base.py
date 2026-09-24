@@ -42,9 +42,9 @@ class DataFrameBackend(ABC):
         Convert a Python timedelta object to a backend-compatible value
         that can be subtracted from a timestamp column.
 
-    drop_duplicates(df: Any, keys: List[str], sort_by: List[str], ascending: bool = False) -> Any
-        Deduplicate the DataFrame by key columns, keeping the first row
-        by descending or ascending sort order.
+    drop_duplicates(df: Any, keys: List[str], sort_by: List[str], ascending: bool = False, keep: int = 1) -> Any
+        Deduplicate the DataFrame by key columns, keeping the first ``keep`` rows
+        per key by descending or ascending sort order.
 
     rename_columns(df: Any, columns: Dict[str, str]) -> Any
         Rename columns in the DataFrame according to the provided mapping.
@@ -72,7 +72,9 @@ class DataFrameBackend(ABC):
     def to_timedelta_value(self, delta: timedelta): ...
 
     @abstractmethod
-    def drop_duplicates(self, df, keys, sort_by, ascending: bool = False):
+    def drop_duplicates(
+        self, df, keys, sort_by, ascending: bool = False, keep: int = 1
+    ):
         pass
 
     @abstractmethod

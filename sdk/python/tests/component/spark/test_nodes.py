@@ -239,3 +239,42 @@ def test_spark_join_node_executes_point_in_time_join(spark_session):
     assert result_df[1]["driver_id"] == 1002
     assert abs(result_df[1]["source__conv_rate"] - 0.7) < 1e-6
     assert result_df[1]["source__avg_daily_trips"] == 12
+
+
+def test_spark_dedup_node_keeps_newest_rows_per_entity(spark_session):
+    """Sequence-mode materialization keeps the newest `keep` rows per entity."""
+    now = datetime.utcnow()
+    df = spark_session.createDataFrame(
+        [
+            {"driver_id": 1001, "event_timestamp": now - timedelta(hours=3), "v": 1},
+            {"driver_id": 1001, "event_timestamp": now - timedelta(hours=2), "v": 2},
+            {"driver_id": 1001, "event_timestamp": now - timedelta(hours=1), "v": 3},
+            {"driver_id": 1002, "event_timestamp": now, "v": 4},
+        ]
+    )
+    context = ExecutionContext(
+        project="test_proj",
+        repo_config=MagicMock(),
+        offline_store=MagicMock(),
+        online_store=MagicMock(),
+        entity_defs=[],
+        entity_df=None,
+        node_outputs={"source": DAGValue(data=df, format=DAGFormat.SPARK)},
+    )
+    dedup_node = SparkDedupNode(
+        name="dedup",
+        spark_session=spark_session,
+        column_info=ColumnInfo(
+            join_keys=["driver_id"],
+            feature_cols=["v"],
+            ts_col="event_timestamp",
+            created_ts_col=None,
+        ),
+        keep=2,
+    )
+    dedup_node.add_input(MagicMock())
+    dedup_node.inputs[0].name = "source"
+
+    rows = dedup_node.execute(context).data.collect()
+
+    assert sorted(row["v"] for row in rows) == [2, 3, 4]

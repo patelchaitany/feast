@@ -50,6 +50,7 @@ class RayReadNode(DAGNode):
         config: RayComputeEngineConfig,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
+        pull_all: bool = False,
     ):
         super().__init__(name)
         self.source = source
@@ -57,6 +58,7 @@ class RayReadNode(DAGNode):
         self.config = config
         self.start_time = start_time
         self.end_time = end_time
+        self.pull_all = pull_all
 
     def execute(self, context: ExecutionContext) -> DAGValue:
         """Execute the read operation to load data from the offline store."""
@@ -67,6 +69,7 @@ class RayReadNode(DAGNode):
                 context=context,
                 start_time=self.start_time,
                 end_time=self.end_time,
+                pull_all=self.pull_all,
             )
 
             if hasattr(retrieval_job, "to_ray_dataset"):
@@ -568,6 +571,8 @@ class RayDedupNode(DAGNode):
       the online store, which does an UPSERT and therefore naturally keeps the
       last-written value.  This avoids the ``groupby().map_groups()`` full
       shuffle that would otherwise block until every single block was produced.
+      Sequence-mode views keep ``keep`` rows per entity in each block; the
+      online store trims each entity to its max_length after appending.
 
     * **Historical retrieval** (``is_materialization=False``): global
       ``groupby().map_groups()``.  Correctness is required here because the
@@ -581,11 +586,13 @@ class RayDedupNode(DAGNode):
         column_info,
         config: RayComputeEngineConfig,
         is_materialization: bool = False,
+        keep: int = 1,
     ):
         super().__init__(name)
         self.column_info = column_info
         self.config = config
         self.is_materialization = is_materialization
+        self.keep = keep
 
     def execute(self, context: ExecutionContext) -> DAGValue:
         """Execute the deduplication operation."""
@@ -610,6 +617,7 @@ class RayDedupNode(DAGNode):
                 # a worker per block without interfering with streaming.
                 _join_keys = list(join_keys)
                 _ts_col = timestamp_col
+                _keep = self.keep
 
                 def _dedup_block(block: pd.DataFrame) -> pd.DataFrame:
                     available = [k for k in _join_keys if k in block.columns]
@@ -617,7 +625,11 @@ class RayDedupNode(DAGNode):
                         return block
                     if _ts_col and _ts_col in block.columns:
                         block = block.sort_values(_ts_col, ascending=False)
-                    return block.drop_duplicates(subset=available)
+                    if _keep == 1:
+                        return block.drop_duplicates(subset=available)
+                    return block.groupby(available, sort=False, dropna=False).head(
+                        _keep
+                    )
 
                 dataset = dataset.map_batches(_dedup_block, batch_format="pandas")
             else:

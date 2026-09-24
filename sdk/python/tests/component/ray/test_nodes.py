@@ -354,6 +354,41 @@ def test_ray_dedup_node_materialization_within_block(
     )
 
 
+def test_ray_dedup_node_materialization_keeps_newest_rows_per_entity(
+    ray_session, ray_config, mock_context, column_info
+):
+    """Sequence-mode materialization keeps the newest `keep` rows per entity."""
+    now = datetime.now()
+    block = pd.DataFrame(
+        {
+            "driver_id": [1001, 1001, 1001, 1002],
+            "event_timestamp": [
+                now - timedelta(hours=3),
+                now - timedelta(hours=2),
+                now - timedelta(hours=1),
+                now,
+            ],
+            "conv_rate": [0.1, 0.2, 0.3, 0.4],
+        }
+    )
+
+    input_value = DAGValue(data=ray.data.from_pandas(block), format=DAGFormat.RAY)
+    dummy_node = DummyInputNode("input_node", input_value)
+    node = RayDedupNode(
+        name="dedup",
+        column_info=column_info,
+        config=ray_config,
+        is_materialization=True,
+        keep=2,
+    )
+    node.add_input(dummy_node)
+    mock_context.node_outputs = {"input_node": input_value}
+
+    result_df = node.execute(mock_context).data.to_pandas()
+
+    assert sorted(result_df["conv_rate"].tolist()) == [0.2, 0.3, 0.4]
+
+
 def test_ray_dedup_node_materialization_cross_block_duplicates_survive(
     ray_session, ray_config, mock_context, column_info
 ):

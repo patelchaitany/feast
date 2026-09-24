@@ -12,6 +12,7 @@ from feast.infra.compute_engines.feature_resolver import (
     FeatureResolver,
 )
 from feast.infra.registry.base_registry import BaseRegistry
+from feast.online_config import uses_append_write_mode
 from feast.utils import _get_column_names
 
 
@@ -77,6 +78,20 @@ class FeatureBuilder(ABC):
 
     def _should_dedupe(self, view):
         return isinstance(self.task, HistoricalRetrievalTask) or self.task.only_latest
+
+    def _sequence_max_length(self, view) -> Optional[int]:
+        """Return max_length when materializing a sequence-mode view, else None.
+
+        Such views pull every row from the offline store and keep the newest
+        max_length rows per entity, instead of only the latest one.
+        """
+        if isinstance(self.task, MaterializationTask) and uses_append_write_mode(view):
+            return view.online_config.max_length
+        return None
+
+    def _dedup_keep(self, view) -> int:
+        """Return how many rows per entity the dedup node keeps."""
+        return self._sequence_max_length(view) or 1
 
     def _build(self, view, input_nodes: Optional[List[DAGNode]]) -> DAGNode:
         # Step 1: build source node

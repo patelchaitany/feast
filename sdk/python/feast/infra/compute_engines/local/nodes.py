@@ -17,6 +17,7 @@ from feast.infra.compute_engines.utils import (
     ENTITY_TS_ALIAS,
     create_offline_store_retrieval_job,
     infer_entity_timestamp_column,
+    write_rows_to_online_store,
 )
 from feast.utils import _convert_arrow_to_proto
 
@@ -31,12 +32,14 @@ class LocalSourceReadNode(LocalNode):
         column_info: ColumnInfo,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
+        pull_all: bool = False,
     ):
         super().__init__(name)
         self.source = source
         self.column_info = column_info
         self.start_time = start_time
         self.end_time = end_time
+        self.pull_all = pull_all
 
     def execute(self, context: ExecutionContext) -> ArrowTableValue:
         retrieval_job = create_offline_store_retrieval_job(
@@ -45,6 +48,7 @@ class LocalSourceReadNode(LocalNode):
             start_time=self.start_time,
             end_time=self.end_time,
             column_info=self.column_info,
+            pull_all=self.pull_all,
         )
         arrow_table = retrieval_job.to_arrow()
         if self.column_info.field_mapping:
@@ -182,11 +186,17 @@ class LocalAggregationNode(LocalNode):
 
 class LocalDedupNode(LocalNode):
     def __init__(
-        self, name: str, column_info: ColumnInfo, backend: DataFrameBackend, inputs=None
+        self,
+        name: str,
+        column_info: ColumnInfo,
+        backend: DataFrameBackend,
+        inputs=None,
+        keep: int = 1,
     ):
         super().__init__(name, inputs=inputs)
         self.column_info = column_info
         self.backend = backend
+        self.keep = keep
 
     def execute(self, context: ExecutionContext) -> ArrowTableValue:
         input_table = self.get_single_table(context).data
@@ -207,7 +217,11 @@ class LocalDedupNode(LocalNode):
                 sort_keys.append(self.column_info.created_timestamp_column)
 
             df = self.backend.drop_duplicates(
-                df, keys=dedup_keys, sort_by=sort_keys, ascending=False
+                df,
+                keys=dedup_keys,
+                sort_by=sort_keys,
+                ascending=False,
+                keep=self.keep,
             )
         result = self.backend.to_arrow(df)
         output = ArrowTableValue(result)
@@ -391,9 +405,10 @@ class LocalOutputNode(LocalNode):
                 rows_to_write = _convert_arrow_to_proto(
                     batch, self.feature_view, join_key_to_value_type
                 )
-                online_store.online_write_batch(
+                write_rows_to_online_store(
+                    online_store,
                     config=context.repo_config,
-                    table=self.feature_view,
+                    feature_view=self.feature_view,
                     data=rows_to_write,
                     progress=lambda x: None,
                 )

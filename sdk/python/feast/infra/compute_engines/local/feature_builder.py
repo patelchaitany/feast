@@ -37,7 +37,14 @@ class LocalFeatureBuilder(FeatureBuilder):
         end_time = self.task.end_time
         column_info = self.get_column_info(view)
         source = view.source
-        node = LocalSourceReadNode("source", source, column_info, start_time, end_time)
+        node = LocalSourceReadNode(
+            "source",
+            source,
+            column_info,
+            start_time,
+            end_time,
+            pull_all=self._sequence_max_length(view) is not None,
+        )
         self.nodes.append(node)
         return node
 
@@ -74,7 +81,13 @@ class LocalFeatureBuilder(FeatureBuilder):
 
     def build_dedup_node(self, view, input_node):
         column_info = self.get_column_info(view)
-        node = LocalDedupNode("dedup", column_info, self.backend, inputs=[input_node])
+        node = LocalDedupNode(
+            "dedup",
+            column_info,
+            self.backend,
+            inputs=[input_node],
+            keep=self._dedup_keep(view),
+        )
         self.nodes.append(node)
         return node
 
