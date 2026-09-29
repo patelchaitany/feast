@@ -155,6 +155,57 @@ class OnlineStore(ABC):
             f"Online store {self.__class__.__name__} does not support online append async"
         )
 
+    def online_read_sequence(
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        entity_keys: List[EntityKeyProto],
+        requested_features: Optional[List[str]] = None,
+        limit: int = 10,
+        offset: int = 0,
+        order: str = "desc",
+    ) -> List[List[Tuple[datetime, Dict[str, ValueProto]]]]:
+        """
+        Reads a page of appended events for each entity key, ordered by event time.
+
+        Only works for feature views with online_config mode="sequence".
+
+        Args:
+            config: The config for the current feature store.
+            table: The feature view whose events should be read.
+            entity_keys: The entity keys to read events for.
+            requested_features: The features to return. Defaults to all features.
+            limit: The maximum number of events to return per entity key.
+            offset: The number of events to skip per entity key.
+            order: "desc" for newest first, "asc" for oldest first.
+
+        Returns:
+            A list of the same length as entity_keys. Each item is a list of
+            (event timestamp, feature values) tuples, empty if there are no events.
+        """
+        raise NotImplementedError(
+            f"Online store {self.__class__.__name__} does not support online read sequence"
+        )
+
+    async def online_read_sequence_async(
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        entity_keys: List[EntityKeyProto],
+        requested_features: Optional[List[str]] = None,
+        limit: int = 10,
+        offset: int = 0,
+        order: str = "desc",
+    ) -> List[List[Tuple[datetime, Dict[str, ValueProto]]]]:
+        """
+        Reads a page of appended events for each entity key asynchronously.
+
+        See online_read_sequence for the arguments and return value.
+        """
+        raise NotImplementedError(
+            f"Online store {self.__class__.__name__} does not support online read sequence async"
+        )
+
     @abstractmethod
     def online_read(
         self,
