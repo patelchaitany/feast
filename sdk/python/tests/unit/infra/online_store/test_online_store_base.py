@@ -70,3 +70,12 @@ class TestOnlineStoreBase:
                     config=MagicMock(), table=MagicMock(), data=[]
                 )
             )
+
+    def test_online_read_sequence_not_implemented_by_default(self):
+        store = ConcreteOnlineStore()
+        with pytest.raises(
+            NotImplementedError, match="does not support online read sequence"
+        ):
+            store.online_read_sequence(
+                config=MagicMock(), table=MagicMock(), entity_keys=[]
+            )
