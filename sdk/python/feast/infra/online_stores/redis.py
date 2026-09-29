@@ -14,7 +14,7 @@
 import json
 import logging
 import struct
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import (
     Any,
@@ -620,15 +620,10 @@ class RedisOnlineStore(OnlineStore):
         ],
     ) -> Dict[bytes, Dict[Union[str, bytes], int]]:
         """Group rows by key, so each key gets one ZADD and one trim per batch."""
-        key_prefix = f"seq:{_versioned_fv_name(table, config)}:".encode("utf8")
         # str | bytes keys match zadd's mapping type in the redis stubs.
         events_by_key: Dict[bytes, Dict[Union[str, bytes], int]] = {}
         for entity_key, values, timestamp, _ in data:
-            redis_key_bin = key_prefix + _redis_key(
-                config.project,
-                entity_key,
-                entity_key_serialization_version=config.entity_key_serialization_version,
-            )
+            redis_key_bin = self._sequence_key(config, table, entity_key)
             event_micros = _epoch_micros(timestamp)
             member = struct.pack(">q", event_micros) + MapProto(
                 val=values
@@ -643,6 +638,157 @@ class RedisOnlineStore(OnlineStore):
         max_age = online_config.max_age if online_config else None
         cutoff = _epoch_micros(utils._utc_now() - max_age) if max_age else None
         return max_length, cutoff
+
+    def _sequence_key(
+        self, config: RepoConfig, table: FeatureView, entity_key: EntityKeyProto
+    ) -> bytes:
+        """Return the sorted set key that holds an entity's events."""
+        return f"seq:{_versioned_fv_name(table, config)}:".encode("utf8") + _redis_key(
+            config.project,
+            entity_key,
+            entity_key_serialization_version=config.entity_key_serialization_version,
+        )
+
+    def online_read_sequence(
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        entity_keys: List[EntityKeyProto],
+        requested_features: Optional[List[str]] = None,
+        limit: int = 10,
+        offset: int = 0,
+        order: str = "desc",
+    ) -> List[List[Tuple[datetime, Dict[str, ValueProto]]]]:
+        """
+        Reads events from the sorted sets written by online_append, one
+        ZREVRANGEBYSCORE (desc) or ZRANGEBYSCORE (asc) per entity key, in one
+        pipeline.
+
+        - Events older than max_age are skipped, since trimming only runs on write.
+        - Reads stop at max_length, since a key can briefly hold more between
+          ZADD and the trim.
+        - offset counts from the newest (desc) or oldest (asc) event, so new
+          writes shift the pages.
+        """
+        online_store_config = config.online_store
+        assert isinstance(online_store_config, RedisOnlineStoreConfig)
+
+        num, min_score = self._sequence_read_args(table, limit, offset, order)
+        if num <= 0:
+            return [[] for _ in entity_keys]
+
+        client = self._get_client(online_store_config)
+        with client.pipeline(transaction=False) as pipe:
+            for entity_key in entity_keys:
+                self._queue_sequence_read(
+                    pipe,
+                    self._sequence_key(config, table, entity_key),
+                    order,
+                    offset,
+                    num,
+                    min_score,
+                )
+            results = pipe.execute()
+
+        return self._decode_sequences(results, table, requested_features)
+
+    async def online_read_sequence_async(
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        entity_keys: List[EntityKeyProto],
+        requested_features: Optional[List[str]] = None,
+        limit: int = 10,
+        offset: int = 0,
+        order: str = "desc",
+    ) -> List[List[Tuple[datetime, Dict[str, ValueProto]]]]:
+        """Async version of online_read_sequence using the async Redis client."""
+        online_store_config = config.online_store
+        assert isinstance(online_store_config, RedisOnlineStoreConfig)
+
+        num, min_score = self._sequence_read_args(table, limit, offset, order)
+        if num <= 0:
+            return [[] for _ in entity_keys]
+
+        client = await self._get_client_async(online_store_config)
+        async with client.pipeline(transaction=False) as pipe:
+            for entity_key in entity_keys:
+                self._queue_sequence_read(
+                    pipe,
+                    self._sequence_key(config, table, entity_key),
+                    order,
+                    offset,
+                    num,
+                    min_score,
+                )
+            results = await pipe.execute()
+
+        return self._decode_sequences(results, table, requested_features)
+
+    def _sequence_read_args(
+        self, table: FeatureView, limit: int, offset: int, order: str
+    ) -> Tuple[int, Union[int, str]]:
+        """Validate the arguments. Return the count to read, capped at
+        max_length, and the lowest score to read."""
+        online_config = table.online_config
+        if online_config is None or online_config.mode != "sequence":
+            raise ValueError(
+                f"Feature view {table.name} must use online_config mode='sequence'."
+            )
+        if limit < 1:
+            raise ValueError("limit must be at least 1.")
+        if offset < 0:
+            raise ValueError("offset must not be negative.")
+        if order not in ("desc", "asc"):
+            raise ValueError("order must be either 'desc' or 'asc'.")
+
+        num = limit
+        if online_config.max_length:
+            num = min(limit, online_config.max_length - offset)
+        _, cutoff = self._append_limits(table)
+        return num, cutoff if cutoff is not None else "-inf"
+
+    @staticmethod
+    def _queue_sequence_read(
+        pipe: Any,
+        redis_key_bin: bytes,
+        order: str,
+        offset: int,
+        num: int,
+        min_score: Union[int, str],
+    ) -> None:
+        if order == "desc":
+            pipe.zrevrangebyscore(redis_key_bin, "+inf", min_score, offset, num)
+        else:
+            pipe.zrangebyscore(redis_key_bin, min_score, "+inf", offset, num)
+
+    @staticmethod
+    def _decode_sequences(
+        results: List[List[ByteString]],
+        table: FeatureView,
+        requested_features: Optional[List[str]],
+    ) -> List[List[Tuple[datetime, Dict[str, ValueProto]]]]:
+        """Decode members written by _group_append_events into events."""
+        feature_names = requested_features or [f.name for f in table.features]
+        epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        sequences = []
+        for members in results:
+            events = []
+            for member in members:
+                member = bytes(member)
+                (event_micros,) = struct.unpack(">q", member[:8])
+                values = MapProto.FromString(member[8:]).val
+                events.append(
+                    (
+                        epoch + timedelta(microseconds=event_micros),
+                        {
+                            name: values[name] if name in values else ValueProto()
+                            for name in feature_names
+                        },
+                    )
+                )
+            sequences.append(events)
+        return sequences
 
     def _generate_redis_keys_for_entities(
         self, config: RepoConfig, entity_keys: List[EntityKeyProto]
