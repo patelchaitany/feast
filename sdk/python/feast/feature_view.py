@@ -452,14 +452,17 @@ class FeatureView(BaseFeatureView):
         return ttl_duration
 
     @classmethod
-    def from_proto(cls, feature_view_proto: FeatureViewProto) -> "FeatureView":
-        return cls._from_proto_internal(feature_view_proto, seen={})
+    def from_proto(
+        cls, feature_view_proto: FeatureViewProto, skip_udf: bool = False
+    ) -> "FeatureView":
+        return cls._from_proto_internal(feature_view_proto, seen={}, skip_udf=skip_udf)
 
     @classmethod
     def _from_proto_internal(
         cls,
         feature_view_proto: FeatureViewProto,
         seen: Dict[str, Union[None, "FeatureView"]],
+        skip_udf: bool = False,
     ) -> "FeatureView":
         """
         Creates a feature view from a protobuf representation of a feature view.
@@ -467,6 +470,11 @@ class FeatureView(BaseFeatureView):
         Args:
             feature_view_proto: A protobuf representation of a feature view.
             seen: A dictionary to keep track of already seen feature views to avoid recursion.
+            skip_udf: When True, do not deserialize any user defined function. A plain
+                FeatureView carries no UDF of its own, so this only matters for the
+                subclasses that do and for callers that must avoid unpickling
+                untrusted payloads (notably authorization checks in the registry
+                server). It is forwarded to nested source views.
 
         Returns:
             A FeatureViewProto object based on the feature view protobuf.
@@ -493,7 +501,7 @@ class FeatureView(BaseFeatureView):
         )
         source_views = [
             FeatureView._from_proto_internal(
-                FeatureViewProto(spec=view_spec, meta=None), seen
+                FeatureViewProto(spec=view_spec, meta=None), seen, skip_udf=skip_udf
             )
             for view_spec in feature_view_proto.spec.source_views
         ]

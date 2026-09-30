@@ -261,7 +261,17 @@ class StreamFeatureView(FeatureView):
         return StreamFeatureViewProto(spec=spec, meta=meta)
 
     @classmethod
-    def from_proto(cls, sfv_proto):
+    def from_proto(cls, sfv_proto, skip_udf: bool = False):
+        """
+        Creates a stream feature view from a protobuf representation.
+
+        Args:
+            sfv_proto: A protobuf representation of a stream feature view.
+            skip_udf: When True, leave the udf unset instead of deserializing it. The
+                udf is a dill payload, so callers that only need identity metadata
+                (notably authorization checks in the registry server) must not
+                deserialize it.
+        """
         batch_source = (
             DataSource.from_proto(sfv_proto.spec.batch_source)
             if sfv_proto.spec.HasField("batch_source")
@@ -274,7 +284,7 @@ class StreamFeatureView(FeatureView):
         )
         udf = (
             dill.loads(sfv_proto.spec.user_defined_function.body)
-            if sfv_proto.spec.HasField("user_defined_function")
+            if not skip_udf and sfv_proto.spec.HasField("user_defined_function")
             else None
         )
         udf_string = (
