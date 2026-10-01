@@ -744,3 +744,65 @@ def test_online_append_async_uses_async_client(
     assert len(events) == 2
     async_pipe.zremrangebyrank.assert_called_once_with(key, 0, -11)
     async_pipe.execute.assert_awaited_once()
+
+
+def test_online_read_sequence_reads_what_online_append_wrote(
+    redis_online_store: RedisOnlineStore, feature_view
+):
+    """Reads the key online_append wrote to and decodes its members, newest first."""
+    feature_view.online_config = OnlineConfig(
+        mode="sequence", max_length=10, write_mode="append"
+    )
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    data = _single_entity_batch([(start, 1), (start + timedelta(seconds=1), 2)])
+    client, pipe = _append_client_and_pipe()
+
+    with patch.object(redis_online_store, "_get_client", return_value=client):
+        redis_online_store.online_append(_dedup_config(), feature_view, data)
+        key, events = pipe.zadd.call_args.args
+        newest_first = sorted(events, key=events.get, reverse=True)
+        pipe.execute.return_value = [newest_first]
+        result = redis_online_store.online_read_sequence(
+            _dedup_config(), feature_view, [data[0][0]], ["feature_10", "feature_11"]
+        )
+
+    pipe.zrevrangebyscore.assert_called_once_with(key, "+inf", "-inf", 0, 10)
+    assert [(ts, values["feature_10"].int32_val) for ts, values in result[0]] == [
+        (start + timedelta(seconds=1), 2),
+        (start, 1),
+    ]
+    assert result[0][0][1]["feature_11"] == ValueProto()
+
+
+def test_online_read_sequence_asc_caps_at_max_length_and_skips_old_events(
+    redis_online_store: RedisOnlineStore, feature_view
+):
+    """asc reads from the max_age cutoff up, and never past max_length."""
+    feature_view.online_config = OnlineConfig(
+        mode="sequence", max_length=10, max_age=timedelta(days=1), write_mode="append"
+    )
+    now = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    entity_key = _single_entity_batch([(now, 1)])[0][0]
+    client, pipe = _append_client_and_pipe()
+    pipe.execute.return_value = [[]]
+
+    with patch.object(redis_online_store, "_get_client", return_value=client):
+        with patch("feast.utils._utc_now", return_value=now):
+            result = redis_online_store.online_read_sequence(
+                _dedup_config(),
+                feature_view,
+                [entity_key],
+                limit=5,
+                offset=8,
+                order="asc",
+            )
+            past_max_length = redis_online_store.online_read_sequence(
+                _dedup_config(), feature_view, [entity_key], offset=10
+            )
+
+    cutoff_micros = int((now - timedelta(days=1)).timestamp()) * 1_000_000
+    key = redis_online_store._sequence_key(_dedup_config(), feature_view, entity_key)
+    pipe.zrangebyscore.assert_called_once_with(key, cutoff_micros, "+inf", 8, 2)
+    assert result == [[]]
+    assert past_max_length == [[]]
+    pipe.zrevrangebyscore.assert_not_called()
