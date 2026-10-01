@@ -34,6 +34,7 @@ from feast.infra.offline_stores.contrib.spark_offline_store.spark import (
 )
 from feast.infra.offline_stores.offline_store import RetrievalJob
 from feast.infra.registry.base_registry import BaseRegistry
+from feast.online_config import uses_append_write_mode
 from feast.repo_config import FeastConfigBaseModel
 from feast.utils import _get_column_names
 
@@ -84,6 +85,10 @@ class SparkComputeEngine(ComputeEngine):
         spark_conf = self._get_feature_view_engine_config(feature_view)
         return get_or_create_new_spark_session(spark_conf)
 
+    @property
+    def supports_append_materialization(self) -> bool:
+        return True
+
     def _materialize_one(
         self,
         registry: BaseRegistry,
@@ -92,6 +97,12 @@ class SparkComputeEngine(ComputeEngine):
         **kwargs,
     ) -> MaterializationJob:
         if from_offline_store:
+            if uses_append_write_mode(task.feature_view):
+                raise ValueError(
+                    f"Feature view {task.feature_view.name} uses online_config "
+                    "mode='sequence', which the legacy from_offline_store path "
+                    "doesn't support."
+                )
             return self._materialize_from_offline_store(
                 registry=registry,
                 feature_view=task.feature_view,

@@ -17,6 +17,7 @@ from feast.infra.offline_stores.offline_store import OfflineStore, RetrievalJob
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.on_demand_feature_view import OnDemandFeatureView
+from feast.online_config import uses_append_write_mode
 from feast.stream_feature_view import StreamFeatureView
 
 if TYPE_CHECKING:
@@ -103,6 +104,39 @@ class ComputeEngine(ABC):
         """If True, the engine already wrote watermarks/state (e.g. driver pod)."""
         return False
 
+    @property
+    def supports_append_materialization(self) -> bool:
+        """Whether materialize() can write sequence-mode feature views.
+
+        Such engines must keep every event per entity (up to max_length) and
+        write them with OnlineStore.online_append.
+        """
+        return False
+
+    def _validate_append_materialization(
+        self, tasks: List[MaterializationTask]
+    ) -> None:
+        """Fail before reading any data if a sequence-mode view can't be materialized."""
+        for task in tasks:
+            feature_view = task.feature_view
+            if not getattr(feature_view, "online", False) or not uses_append_write_mode(
+                feature_view
+            ):
+                continue
+            if not self.supports_append_materialization:
+                raise NotImplementedError(
+                    f"Compute engine {type(self).__name__} can't materialize feature "
+                    f"view {feature_view.name}, which uses online_config "
+                    "mode='sequence'. Use the local, ray, spark or flink compute engine."
+                )
+            store_append = getattr(type(self.online_store), "online_append", None)
+            if store_append is None or store_append is OnlineStore.online_append:
+                raise NotImplementedError(
+                    f"Online store {type(self.online_store).__name__} does not support "
+                    f"online_append, which feature view {feature_view.name} needs "
+                    "because it uses online_config mode='sequence'."
+                )
+
     def materialize(
         self,
         registry: BaseRegistry,
@@ -123,6 +157,7 @@ class ComputeEngine(ABC):
         """
         if isinstance(tasks, MaterializationTask):
             tasks = [tasks]
+        self._validate_append_materialization(tasks)
         if lineage_parent is not None:
             kwargs["lineage_parent"] = lineage_parent
         return [self._materialize_one(registry, task, **kwargs) for task in tasks]
