@@ -37,10 +37,13 @@ class PandasBackend(DataFrameBackend):
     def to_timedelta_value(self, delta: timedelta):
         return pd.to_timedelta(delta)
 
-    def drop_duplicates(self, df, keys, sort_by, ascending: bool = False):
-        return df.sort_values(by=sort_by, ascending=ascending).drop_duplicates(
-            subset=keys
-        )
+    def drop_duplicates(
+        self, df, keys, sort_by, ascending: bool = False, keep: int = 1
+    ):
+        df = df.sort_values(by=sort_by, ascending=ascending)
+        if keep == 1:
+            return df.drop_duplicates(subset=keys)
+        return df.groupby(keys, sort=False, dropna=False).head(keep)
 
     def rename_columns(self, df, columns: dict[str, str]):
         return df.rename(columns=columns)

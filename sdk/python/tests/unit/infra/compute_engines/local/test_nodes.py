@@ -15,6 +15,7 @@ from feast.infra.compute_engines.local.nodes import (
     LocalOutputNode,
     LocalTransformationNode,
 )
+from feast.online_config import OnlineConfig
 from feast.repo_config import MaterializationConfig
 
 backend = PandasBackend()
@@ -184,6 +185,42 @@ def test_local_dedup_node():
     df_result = result.data.to_pandas()
     assert df_result.shape[0] == 2
     assert set(df_result["entity_id"]) == {1, 2}
+
+
+def test_local_dedup_node_keeps_newest_rows_per_entity():
+    """Sequence-mode materialization keeps the newest `keep` rows per entity."""
+    df = pd.DataFrame(
+        {
+            "entity_id": [1, 1, 1, 2],
+            "value": [100, 200, 300, 400],
+            "event_timestamp": [
+                now - timedelta(seconds=2),
+                now - timedelta(seconds=1),
+                now,
+                now,
+            ],
+        }
+    )
+    context = create_context(
+        node_outputs={"source": ArrowTableValue(pa.Table.from_pandas(df))}
+    )
+    node = LocalDedupNode(
+        name="dedup",
+        backend=backend,
+        column_info=ColumnInfo(
+            join_keys=["entity_id"],
+            feature_cols=["value"],
+            ts_col="event_timestamp",
+            created_ts_col=None,
+        ),
+        keep=2,
+    )
+    node.add_input(MagicMock())
+    node.inputs[0].name = "source"
+
+    result = node.execute(context).data.to_pandas()
+
+    assert sorted(result["value"]) == [200, 300, 400]
 
 
 def test_local_dedup_node_with_field_mapping_on_join_key():
@@ -383,3 +420,25 @@ def test_local_output_node_online_write_batched():
 
     # Verify online_write_batch was called twice (4 rows / batch_size 2 = 2 batches)
     assert context.online_store.online_write_batch.call_count == 2
+
+
+def test_local_output_node_appends_for_sequence_mode():
+    """Sequence-mode feature views are written with online_append."""
+    feature_view = MagicMock()
+    feature_view.online = True
+    feature_view.offline = False
+    feature_view.entity_columns = []
+    feature_view.online_config = OnlineConfig(
+        mode="sequence", max_length=10, write_mode="append"
+    )
+    context = create_context(
+        node_outputs={"source": ArrowTableValue(pa.Table.from_pandas(sample_df))}
+    )
+
+    node = LocalOutputNode("output", feature_view)
+    node.add_input(MagicMock())
+    node.inputs[0].name = "source"
+    node.execute(context)
+
+    assert context.online_store.online_append.call_count == 1
+    context.online_store.online_write_batch.assert_not_called()
