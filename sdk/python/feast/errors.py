@@ -146,6 +146,17 @@ class VersionedOnlineReadNotSupported(FeastError):
         )
 
 
+class SequenceReadNotSupported(FeastError):
+    def __init__(self, feature_view_names: List[str]):
+        super().__init__(
+            "sequence_length > 1 needs feature views with online_config "
+            f"mode='sequence', but these do not use it: {', '.join(feature_view_names)}."
+        )
+
+    def http_status_code(self) -> int:
+        return HttpStatusCode.HTTP_422_UNPROCESSABLE_ENTITY
+
+
 class FeatureViewPinConflict(FeastError):
     def __init__(self, name, version):
         super().__init__(

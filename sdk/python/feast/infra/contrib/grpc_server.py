@@ -152,6 +152,9 @@ class GrpcFeatureServer(GrpcFeatureServerServicer):
             features,
             request.entities,
             request.full_feature_names,
+            sequence_length=request.sequence_length,
+            sequence_offset=request.sequence_offset,
+            sequence_order=request.sequence_order or "desc",
         ).proto
 
         return result
