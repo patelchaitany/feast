@@ -321,6 +321,9 @@ class Provider(ABC):
         project: str,
         full_feature_names: bool = False,
         include_feature_view_version_metadata: bool = False,
+        sequence_length: int = 1,
+        sequence_offset: int = 0,
+        sequence_order: str = "desc",
     ) -> OnlineResponse:
         pass
 
@@ -337,6 +340,9 @@ class Provider(ABC):
         project: str,
         full_feature_names: bool = False,
         include_feature_view_version_metadata: bool = False,
+        sequence_length: int = 1,
+        sequence_offset: int = 0,
+        sequence_order: str = "desc",
     ) -> OnlineResponse:
         pass
 
