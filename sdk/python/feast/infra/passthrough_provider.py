@@ -274,6 +274,9 @@ class PassthroughProvider(Provider):
         project: str,
         full_feature_names: bool = False,
         include_feature_view_version_metadata: bool = False,
+        sequence_length: int = 1,
+        sequence_offset: int = 0,
+        sequence_order: str = "desc",
     ) -> OnlineResponse:
         return self.online_store.get_online_features(
             config=config,
@@ -283,6 +286,9 @@ class PassthroughProvider(Provider):
             project=project,
             full_feature_names=full_feature_names,
             include_feature_view_version_metadata=include_feature_view_version_metadata,
+            sequence_length=sequence_length,
+            sequence_offset=sequence_offset,
+            sequence_order=sequence_order,
         )
 
     async def get_online_features_async(
@@ -297,6 +303,9 @@ class PassthroughProvider(Provider):
         project: str,
         full_feature_names: bool = False,
         include_feature_view_version_metadata: bool = False,
+        sequence_length: int = 1,
+        sequence_offset: int = 0,
+        sequence_order: str = "desc",
     ) -> OnlineResponse:
         return await self.online_store.get_online_features_async(
             config=config,
@@ -306,6 +315,9 @@ class PassthroughProvider(Provider):
             project=project,
             full_feature_names=full_feature_names,
             include_feature_view_version_metadata=include_feature_view_version_metadata,
+            sequence_length=sequence_length,
+            sequence_offset=sequence_offset,
+            sequence_order=sequence_order,
         )
 
     async def online_read_async(
