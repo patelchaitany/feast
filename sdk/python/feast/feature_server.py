@@ -25,7 +25,17 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from importlib import resources as importlib_resources
 from types import SimpleNamespace
-from typing import Any, DefaultDict, Dict, List, NamedTuple, Optional, Set, Union
+from typing import (
+    Any,
+    DefaultDict,
+    Dict,
+    List,
+    Literal,
+    NamedTuple,
+    Optional,
+    Set,
+    Union,
+)
 
 import pandas as pd
 from dateutil import parser
@@ -126,6 +136,21 @@ class GetOnlineFeaturesRequest(BaseModel):
     features: List[str] = []
     full_feature_names: bool = False
     include_feature_view_version_metadata: bool = False
+    sequence_length: int = Field(
+        1,
+        ge=0,
+        description=(
+            "Events to return per entity for feature views with online_config "
+            "mode='sequence'. 0 or 1 returns one value per feature. Above 1, each "
+            "value is a list, with a '<feature>__timestamps' list next to it."
+        ),
+    )
+    sequence_offset: int = Field(
+        0, ge=0, description="Events to skip per entity, for paging."
+    )
+    sequence_order: Literal["desc", "asc"] = Field(
+        "desc", description="'desc' for newest first, 'asc' for oldest first."
+    )
 
 
 class GetOnlineDocumentsRequest(BaseModel):
@@ -692,6 +717,9 @@ def get_app(
                 entity_rows=request.entities,
                 full_feature_names=request.full_feature_names,
                 include_feature_view_version_metadata=request.include_feature_view_version_metadata,
+                sequence_length=request.sequence_length,
+                sequence_offset=request.sequence_offset,
+                sequence_order=request.sequence_order,
             )
 
             audit_start_ms = 0.0

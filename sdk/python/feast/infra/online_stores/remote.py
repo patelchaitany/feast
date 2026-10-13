@@ -180,6 +180,9 @@ class RemoteOnlineStore(OnlineStore):
         project: str,
         full_feature_names: bool = False,
         include_feature_view_version_metadata: bool = False,
+        sequence_length: int = 1,
+        sequence_offset: int = 0,
+        sequence_order: str = "desc",
     ) -> OnlineResponse:
         assert isinstance(config.online_store, RemoteOnlineStoreConfig)
 
@@ -199,6 +202,9 @@ class RemoteOnlineStore(OnlineStore):
             "entities": entities,
             "full_feature_names": full_feature_names,
             "include_feature_view_version_metadata": include_feature_view_version_metadata,
+            "sequence_length": sequence_length,
+            "sequence_offset": sequence_offset,
+            "sequence_order": sequence_order,
         }
 
         if isinstance(features, FeatureService):

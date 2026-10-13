@@ -3968,6 +3968,9 @@ class FeatureStore:
         ],
         full_feature_names: bool = False,
         include_feature_view_version_metadata: bool = False,
+        sequence_length: int = 1,
+        sequence_offset: int = 0,
+        sequence_order: str = "desc",
     ) -> OnlineResponse:
         """
         Retrieves the latest online feature data.
@@ -3988,6 +3991,12 @@ class FeatureStore:
             full_feature_names: If True, feature names will be prefixed with the corresponding feature view name,
                 changing them from the format "feature" to "feature_view__feature" (e.g. "daily_transactions"
                 changes to "customer_fv__daily_transactions").
+            sequence_length: The number of events to return per entity for feature views with
+                online_config mode="sequence". 0 or 1 returns one value per feature. Above 1, each
+                feature value is a list, with a "<feature>__timestamps" list of event times next to
+                it. Feature views without sequence mode raise an error when this is above 1.
+            sequence_offset: The number of events to skip per entity, for paging through a sequence.
+            sequence_order: "desc" for newest first, "asc" for oldest first.
 
         Returns:
             OnlineResponse containing the feature data in records.
@@ -4022,6 +4031,9 @@ class FeatureStore:
             project=self.project,
             full_feature_names=full_feature_names,
             include_feature_view_version_metadata=include_feature_view_version_metadata,
+            sequence_length=sequence_length,
+            sequence_offset=sequence_offset,
+            sequence_order=sequence_order,
         )
 
         # Auto-log to MLflow if configured
@@ -4060,6 +4072,9 @@ class FeatureStore:
         ],
         full_feature_names: bool = False,
         include_feature_view_version_metadata: bool = False,
+        sequence_length: int = 1,
+        sequence_offset: int = 0,
+        sequence_order: str = "desc",
     ) -> OnlineResponse:
         """
         [Alpha] Retrieves the latest online feature data asynchronously.
@@ -4080,6 +4095,12 @@ class FeatureStore:
             full_feature_names: If True, feature names will be prefixed with the corresponding feature view name,
                 changing them from the format "feature" to "feature_view__feature" (e.g. "daily_transactions"
                 changes to "customer_fv__daily_transactions").
+            sequence_length: The number of events to return per entity for feature views with
+                online_config mode="sequence". 0 or 1 returns one value per feature. Above 1, each
+                feature value is a list, with a "<feature>__timestamps" list of event times next to
+                it. Feature views without sequence mode raise an error when this is above 1.
+            sequence_offset: The number of events to skip per entity, for paging through a sequence.
+            sequence_order: "desc" for newest first, "asc" for oldest first.
 
         Returns:
             OnlineResponse containing the feature data in records.
@@ -4099,6 +4120,9 @@ class FeatureStore:
             project=self.project,
             full_feature_names=full_feature_names,
             include_feature_view_version_metadata=include_feature_view_version_metadata,
+            sequence_length=sequence_length,
+            sequence_offset=sequence_offset,
+            sequence_order=sequence_order,
         )
 
         try:

@@ -254,6 +254,9 @@ class GetOnlineFeaturesRequest(google.protobuf.message.Message):
     FULL_FEATURE_NAMES_FIELD_NUMBER: builtins.int
     REQUEST_CONTEXT_FIELD_NUMBER: builtins.int
     INCLUDE_FEATURE_VIEW_VERSION_METADATA_FIELD_NUMBER: builtins.int
+    SEQUENCE_LENGTH_FIELD_NUMBER: builtins.int
+    SEQUENCE_OFFSET_FIELD_NUMBER: builtins.int
+    SEQUENCE_ORDER_FIELD_NUMBER: builtins.int
     feature_service: builtins.str
     @property
     def features(self) -> global___FeatureList: ...
@@ -271,6 +274,16 @@ class GetOnlineFeaturesRequest(google.protobuf.message.Message):
         """
     include_feature_view_version_metadata: builtins.bool
     """Whether to include feature view version metadata in the response"""
+    sequence_length: builtins.int
+    """Number of events to return per entity for feature views with
+    online_config mode="sequence". 0 or 1 returns one value per feature.
+    Above 1, each feature value is a list, with a "<feature>__timestamps"
+    list next to it.
+    """
+    sequence_offset: builtins.int
+    """Number of events to skip per entity, for paging through a sequence."""
+    sequence_order: builtins.str
+    """"desc" (newest first, the default when empty) or "asc" (oldest first)."""
     def __init__(
         self,
         *,
@@ -280,9 +293,12 @@ class GetOnlineFeaturesRequest(google.protobuf.message.Message):
         full_feature_names: builtins.bool = ...,
         request_context: collections.abc.Mapping[builtins.str, feast.types.Value_pb2.RepeatedValue] | None = ...,
         include_feature_view_version_metadata: builtins.bool = ...,
+        sequence_length: builtins.int = ...,
+        sequence_offset: builtins.int = ...,
+        sequence_order: builtins.str = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["feature_service", b"feature_service", "features", b"features", "kind", b"kind"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["entities", b"entities", "feature_service", b"feature_service", "features", b"features", "full_feature_names", b"full_feature_names", "include_feature_view_version_metadata", b"include_feature_view_version_metadata", "kind", b"kind", "request_context", b"request_context"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["entities", b"entities", "feature_service", b"feature_service", "features", b"features", "full_feature_names", b"full_feature_names", "include_feature_view_version_metadata", b"include_feature_view_version_metadata", "kind", b"kind", "request_context", b"request_context", "sequence_length", b"sequence_length", "sequence_offset", b"sequence_offset", "sequence_order", b"sequence_order"]) -> None: ...
     def WhichOneof(self, oneof_group: typing_extensions.Literal["kind", b"kind"]) -> typing_extensions.Literal["feature_service", "features"] | None: ...
 
 global___GetOnlineFeaturesRequest = GetOnlineFeaturesRequest

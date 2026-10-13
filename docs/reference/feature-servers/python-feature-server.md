@@ -196,6 +196,20 @@ curl -X POST \
   }' | jq
 ```
 
+For feature views with `online_config` mode `"sequence"`, set `sequence_length` to get the last N events per entity. Each value is then a list, and a `<feature>__timestamps` column holds the event time of each value in Unix seconds. `sequence_offset` skips events for paging, and `sequence_order` is `"desc"` (newest first, the default) or `"asc"`. A `sequence_length` above 1 on a feature view without sequence mode returns a 422 error. The gRPC `GetOnlineFeaturesRequest` has the same three fields.
+
+```
+curl -X POST \
+  "http://localhost:6566/get-online-features" \
+  -d '{
+    "features": ["user_interactions:item_id"],
+    "entities": {"user_id": ["u123"]},
+    "sequence_length": 20,
+    "sequence_offset": 0,
+    "sequence_order": "desc"
+  }' | jq
+```
+
 ### Pushing features to the online and offline stores
 
 The Python feature server also exposes an endpoint for [push sources](../data-sources/push.md). This endpoint allows you to push data to the online and/or offline store.
