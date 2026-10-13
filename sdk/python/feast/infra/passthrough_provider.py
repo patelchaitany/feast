@@ -39,6 +39,7 @@ from feast.infra.online_stores.helpers import get_online_store_from_config
 from feast.infra.provider import Provider
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.infra.supported_async_methods import ProviderAsyncMethods
+from feast.online_config import uses_append_write_mode
 from feast.online_response import OnlineResponse
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
@@ -54,14 +55,6 @@ from feast.utils import (
 )
 
 DEFAULT_BATCH_SIZE = 10_000
-
-
-def _uses_append_write_mode(feature_view: BaseFeatureView) -> bool:
-    return (
-        isinstance(feature_view, FeatureView)
-        and feature_view.online_config is not None
-        and feature_view.online_config.write_mode == "append"
-    )
 
 
 class PassthroughProvider(Provider):
@@ -434,7 +427,7 @@ class PassthroughProvider(Provider):
             df=df,
             field_mapping=field_mapping,
         )
-        if _uses_append_write_mode(feature_view):
+        if uses_append_write_mode(feature_view):
             self.online_append(
                 self.repo_config, feature_view, rows_to_write, progress=None
             )
@@ -454,7 +447,7 @@ class PassthroughProvider(Provider):
             df=df,
             field_mapping=field_mapping,
         )
-        if _uses_append_write_mode(feature_view):
+        if uses_append_write_mode(feature_view):
             await self.online_append_async(
                 self.repo_config, feature_view, rows_to_write, progress=None
             )

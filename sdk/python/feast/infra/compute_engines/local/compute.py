@@ -71,6 +71,10 @@ class LocalComputeEngine(ComputeEngine):
             return backend
         raise ValueError("Could not infer backend from context.entity_df")
 
+    @property
+    def supports_append_materialization(self) -> bool:
+        return True
+
     def _materialize_one(
         self, registry: BaseRegistry, task: MaterializationTask, **kwargs
     ) -> LocalMaterializationJob:
