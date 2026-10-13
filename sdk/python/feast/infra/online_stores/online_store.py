@@ -22,7 +22,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 from feast import Entity, utils
 from feast.batch_feature_view import BatchFeatureView
-from feast.errors import VersionedOnlineReadNotSupported
+from feast.errors import SequenceReadNotSupported, VersionedOnlineReadNotSupported
 from feast.feature_service import FeatureService
 from feast.feature_view import FeatureView
 from feast.filter_models import ComparisonFilter, CompoundFilter
@@ -267,6 +267,9 @@ class OnlineStore(ABC):
         project: str,
         full_feature_names: bool = False,
         include_feature_view_version_metadata: bool = False,
+        sequence_length: int = 1,
+        sequence_offset: int = 0,
+        sequence_order: str = "desc",
     ) -> OnlineResponse:
         if isinstance(entity_rows, list):
             columnar: Dict[str, List[Any]] = {k: [] for k in entity_rows[0].keys()}
@@ -300,6 +303,9 @@ class OnlineStore(ABC):
 
         # Check for versioned reads on unsupported stores
         self._check_versioned_read_support(grouped_refs)
+        latest_refs, sequence_refs = self._split_sequence_refs(
+            grouped_refs, sequence_length, sequence_offset, sequence_order
+        )
         _track_read = False
         try:
             from feast.metrics import _config as _metrics_config
@@ -317,6 +323,7 @@ class OnlineStore(ABC):
             isinstance(features, FeatureService)
             and getattr(features, "precompute_online", False)
             and not requested_on_demand_feature_views
+            and not sequence_refs
         )
 
         precomputed_ok = False
@@ -356,12 +363,24 @@ class OnlineStore(ABC):
         if not precomputed_ok:
             self._read_features_per_fv(
                 config,
-                grouped_refs,
+                latest_refs,
                 join_key_values,
                 entity_name_to_join_key_map,
                 online_features_response,
                 full_feature_names,
                 include_feature_view_version_metadata,
+            )
+            self._read_sequence_features_per_fv(
+                config,
+                sequence_refs,
+                join_key_values,
+                entity_name_to_join_key_map,
+                online_features_response,
+                full_feature_names,
+                include_feature_view_version_metadata,
+                sequence_length,
+                sequence_offset,
+                sequence_order,
             )
 
         if _track_read:
@@ -380,6 +399,11 @@ class OnlineStore(ABC):
                 feature_types=feature_types,
             )
 
+        if sequence_length > 1:
+            requested_result_row_names = requested_result_row_names | {
+                name + utils.SEQUENCE_TIMESTAMPS_SUFFIX
+                for name in requested_result_row_names
+            }
         utils._drop_unneeded_columns(
             online_features_response, requested_result_row_names
         )
@@ -518,6 +542,132 @@ class OnlineStore(ABC):
                 include_feature_view_version_metadata,
             )
 
+    @staticmethod
+    def _split_sequence_refs(
+        grouped_refs: List,
+        sequence_length: int,
+        sequence_offset: int,
+        sequence_order: str,
+    ) -> Tuple[List, List]:
+        """Check the sequence arguments, then split grouped_refs into
+        latest-mode and sequence-mode feature views."""
+        if sequence_length < 0:
+            raise ValueError("sequence_length must not be negative.")
+        if sequence_offset < 0:
+            raise ValueError("sequence_offset must not be negative.")
+        if sequence_order not in ("desc", "asc"):
+            raise ValueError("sequence_order must be either 'desc' or 'asc'.")
+
+        latest_refs, sequence_refs = [], []
+        for table, requested_features in grouped_refs:
+            online_config = getattr(table, "online_config", None)
+            if online_config is not None and online_config.mode == "sequence":
+                sequence_refs.append((table, requested_features))
+            else:
+                latest_refs.append((table, requested_features))
+
+        if sequence_length > 1 and latest_refs:
+            raise SequenceReadNotSupported([table.name for table, _ in latest_refs])
+        return latest_refs, sequence_refs
+
+    def _read_sequence_features_per_fv(
+        self,
+        config: RepoConfig,
+        sequence_refs: List,
+        join_key_values: Dict,
+        entity_name_to_join_key_map: Dict,
+        online_features_response,
+        full_feature_names: bool,
+        include_feature_view_version_metadata: bool,
+        sequence_length: int,
+        sequence_offset: int,
+        sequence_order: str,
+    ) -> None:
+        """Read sequence-mode feature views with online_read_sequence.
+
+        A sequence_length of 0 or 1 returns one value per feature, read from
+        the event at sequence_offset. Above 1, each value is a list of events.
+        """
+        for table, requested_features in sequence_refs:
+            table_entity_values, idxs, output_len = utils._get_unique_entities(
+                table, join_key_values, entity_name_to_join_key_map
+            )
+            sequences = self.online_read_sequence(
+                config=config,
+                table=table,
+                entity_keys=utils._get_entity_key_protos(table_entity_values),
+                requested_features=requested_features,
+                limit=max(sequence_length, 1),
+                offset=sequence_offset,
+                order=sequence_order,
+            )
+            utils._populate_response_from_sequence_data(
+                requested_features,
+                sequences,
+                idxs,
+                online_features_response,
+                full_feature_names,
+                table,
+                output_len,
+                include_feature_view_version_metadata,
+                as_lists=sequence_length > 1,
+            )
+
+    async def _read_sequence_features_per_fv_async(
+        self,
+        config: RepoConfig,
+        sequence_refs: List,
+        join_key_values: Dict,
+        entity_name_to_join_key_map: Dict,
+        online_features_response,
+        full_feature_names: bool,
+        include_feature_view_version_metadata: bool,
+        sequence_length: int,
+        sequence_offset: int,
+        sequence_order: str,
+    ) -> None:
+        """Async version of :meth:`_read_sequence_features_per_fv`.
+
+        Reads all feature views concurrently via ``asyncio.gather``.
+        """
+
+        async def query_table(table, requested_features):
+            table_entity_values, idxs, output_len = utils._get_unique_entities(
+                table, join_key_values, entity_name_to_join_key_map
+            )
+            sequences = await self.online_read_sequence_async(
+                config=config,
+                table=table,
+                entity_keys=utils._get_entity_key_protos(table_entity_values),
+                requested_features=requested_features,
+                limit=max(sequence_length, 1),
+                offset=sequence_offset,
+                order=sequence_order,
+            )
+            return idxs, sequences, output_len
+
+        all_responses = await asyncio.gather(
+            *[
+                query_table(table, requested_features)
+                for table, requested_features in sequence_refs
+            ]
+        )
+
+        for (idxs, sequences, output_len), (table, requested_features) in zip(
+            all_responses, sequence_refs
+        ):
+            utils._populate_response_from_sequence_data(
+                requested_features,
+                sequences,
+                idxs,
+                online_features_response,
+                full_feature_names,
+                table,
+                output_len,
+                include_feature_view_version_metadata,
+                as_lists=sequence_length > 1,
+            )
+
     async def read_precomputed_vectors_async(
         self,
         config: RepoConfig,
@@ -552,6 +702,9 @@ class OnlineStore(ABC):
         project: str,
         full_feature_names: bool = False,
         include_feature_view_version_metadata: bool = False,
+        sequence_length: int = 1,
+        sequence_offset: int = 0,
+        sequence_order: str = "desc",
     ) -> OnlineResponse:
         if isinstance(entity_rows, list):
             columnar: Dict[str, List[Any]] = {k: [] for k in entity_rows[0].keys()}
@@ -585,6 +738,9 @@ class OnlineStore(ABC):
 
         # Check for versioned reads on unsupported stores
         self._check_versioned_read_support(grouped_refs)
+        latest_refs, sequence_refs = self._split_sequence_refs(
+            grouped_refs, sequence_length, sequence_offset, sequence_order
+        )
 
         _track_read = False
         try:
@@ -603,6 +759,7 @@ class OnlineStore(ABC):
             isinstance(features, FeatureService)
             and getattr(features, "precompute_online", False)
             and not requested_on_demand_feature_views
+            and not sequence_refs
         )
 
         precomputed_ok = False
@@ -642,12 +799,24 @@ class OnlineStore(ABC):
         if not precomputed_ok:
             await self._read_features_per_fv_async(
                 config,
-                grouped_refs,
+                latest_refs,
                 join_key_values,
                 entity_name_to_join_key_map,
                 online_features_response,
                 full_feature_names,
                 include_feature_view_version_metadata,
+            )
+            await self._read_sequence_features_per_fv_async(
+                config,
+                sequence_refs,
+                join_key_values,
+                entity_name_to_join_key_map,
+                online_features_response,
+                full_feature_names,
+                include_feature_view_version_metadata,
+                sequence_length,
+                sequence_offset,
+                sequence_order,
             )
 
         if _track_read:
@@ -666,6 +835,11 @@ class OnlineStore(ABC):
                 feature_types=feature_types,
             )
 
+        if sequence_length > 1:
+            requested_result_row_names = requested_result_row_names | {
+                name + utils.SEQUENCE_TIMESTAMPS_SUFFIX
+                for name in requested_result_row_names
+            }
         utils._drop_unneeded_columns(
             online_features_response, requested_result_row_names
         )
