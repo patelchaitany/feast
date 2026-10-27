@@ -18,6 +18,7 @@
   * [Feature Transformation](getting-started/architecture/feature-transformation.md)
   * [Feature Serving and Model Inference](getting-started/architecture/model-inference.md)
   * [Role-Based Access Control (RBAC)](getting-started/architecture/rbac.md)
+  * [LLM Context Assembly](getting-started/architecture/llm-context-assembly.md)
 * [Concepts](getting-started/concepts/README.md)
   * [Overview](getting-started/concepts/overview.md)
   * [Project](getting-started/concepts/project.md)
