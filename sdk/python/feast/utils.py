@@ -1925,6 +1925,83 @@ def _populate_response_from_feature_data(
         )
 
 
+SEQUENCE_TIMESTAMPS_SUFFIX = "__timestamps"
+
+
+def _populate_response_from_sequence_data(
+    requested_features: List[str],
+    sequences: List[List[Tuple[datetime, Dict[str, ValueProto]]]],
+    indexes: Iterable[List[int]],
+    online_features_response: GetOnlineFeaturesResponse,
+    full_feature_names: bool,
+    table: "FeatureView",
+    output_len: int,
+    include_feature_view_version_metadata: bool,
+    as_lists: bool,
+):
+    """Populate the GetOnlineFeaturesResponse from online_read_sequence events.
+
+    Without ``as_lists``, each entity gets the first event's values, like an
+    ``online_read`` row. With ``as_lists``, each feature value is the list of
+    the feature's values across the events, in read order, followed by a
+    ``"<feature>__timestamps"`` column listing each event's time. Entities
+    without events get null values and NOT_FOUND.
+    """
+    if not as_lists:
+        read_rows: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = [
+            events[0] if events else (None, None) for events in sequences
+        ]
+        _populate_response_from_feature_data(
+            requested_features,
+            read_rows,
+            indexes,
+            online_features_response,
+            full_feature_names,
+            table,
+            output_len,
+            include_feature_view_version_metadata,
+        )
+        return
+
+    columns = []
+    for name in requested_features:
+        columns += [name, name + SEQUENCE_TIMESTAMPS_SUFFIX]
+
+    read_rows = []
+    for events in sequences:
+        if not events:
+            read_rows.append((None, None))
+            continue
+        timestamps = ValueProto(
+            list_val=RepeatedValueProto(
+                val=[
+                    ValueProto(unix_timestamp_val=int(ts.timestamp()))
+                    for ts, _ in events
+                ]
+            )
+        )
+        row: Dict[str, ValueProto] = {}
+        for name in requested_features:
+            row[name] = ValueProto(
+                list_val=RepeatedValueProto(
+                    val=[values.get(name, ValueProto()) for _, values in events]
+                )
+            )
+            row[name + SEQUENCE_TIMESTAMPS_SUFFIX] = timestamps
+        read_rows.append((events[0][0], row))
+
+    _populate_response_from_feature_data(
+        columns,
+        read_rows,
+        indexes,
+        online_features_response,
+        full_feature_names,
+        table,
+        output_len,
+        include_feature_view_version_metadata,
+    )
+
+
 def has_all_tags(
     object_tags: dict[str, str], requested_tags: Optional[dict[str, str]] = None
 ) -> bool:
