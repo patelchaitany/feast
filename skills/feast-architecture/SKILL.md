@@ -191,6 +191,8 @@ store.materialize(start_date, end_date)
   └── Update last_updated_timestamp in registry
 ```
 
+Sequence-mode feature views (`online_config.write_mode="append"`) pull every row, keep the newest `max_length` rows per entity in the dedup node (`FeatureBuilder._dedup_keep`), and write through `write_rows_to_online_store` in `infra/compute_engines/utils.py`, which calls `online_append`. `ComputeEngine.materialize` fails early unless the engine sets `supports_append_materialization` (Local, Ray, Spark, Flink) and the online store implements `online_append`.
+
 ### `get_online_features`
 ```
 store.get_online_features(features, entity_rows)
