@@ -160,6 +160,9 @@ mcp-server = [
     "python-dotenv>=1.0",
 ]
 mlflow = ["mlflow>=2.10.0"]
+# feast.context prompt assembly: exact token counts (o200k_base needs 0.7) and
+# template rendering.
+llm = ["tiktoken>=0.7.0,<1", "Jinja2>=2,<4"]
 
 dbt = ["dbt-artifacts-parser"]
 
