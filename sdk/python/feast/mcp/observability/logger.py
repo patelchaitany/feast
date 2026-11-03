@@ -170,16 +170,20 @@ def _build_otel_handler(config: LoggingConfig) -> Optional[logging.Handler]:
                 OTLPLogExporter,
             )
 
-            exporter = OTLPLogExporter(endpoint=config.otel_endpoint, headers=headers)
+            processor = BatchLogRecordProcessor(
+                OTLPLogExporter(endpoint=config.otel_endpoint, headers=headers)
+            )
         else:
-            from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (  # type: ignore[assignment]
-                OTLPLogExporter,
+            from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (
+                OTLPLogExporter as GRPCLogExporter,
             )
 
-            exporter = OTLPLogExporter(  # type: ignore[call-arg]
-                endpoint=config.otel_endpoint,
-                insecure=config.otel_insecure,
-                headers=headers,
+            processor = BatchLogRecordProcessor(
+                GRPCLogExporter(
+                    endpoint=config.otel_endpoint,
+                    insecure=config.otel_insecure,
+                    headers=headers,
+                )
             )
     except ImportError:
         root.warning(
@@ -191,7 +195,7 @@ def _build_otel_handler(config: LoggingConfig) -> Optional[logging.Handler]:
 
     resource = Resource.create({"service.name": config.otel_service_name})
     provider = LoggerProvider(resource=resource)
-    provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
+    provider.add_log_record_processor(processor)
     set_logger_provider(provider)
     _otel_provider = provider
 

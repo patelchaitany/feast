@@ -51,11 +51,11 @@ def _build_span_exporter(config: LoggingConfig, root: logging.Logger):
 
             return OTLPSpanExporter(endpoint=config.otel_endpoint, headers=headers)
 
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # type: ignore[assignment]
-            OTLPSpanExporter,
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+            OTLPSpanExporter as GRPCSpanExporter,
         )
 
-        return OTLPSpanExporter(  # type: ignore[call-arg]
+        return GRPCSpanExporter(
             endpoint=config.otel_endpoint,
             insecure=config.otel_insecure,
             headers=headers,
