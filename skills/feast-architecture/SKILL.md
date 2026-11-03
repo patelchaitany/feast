@@ -203,6 +203,8 @@ store.get_online_features(features, entity_rows)
   └── Return OnlineFeaturesResponse
 ```
 
+Feature views with `online_config.mode="sequence"` are read with `online_read_sequence` instead (`OnlineStore._read_sequence_features_per_fv`), paged by the `sequence_length`, `sequence_offset` and `sequence_order` arguments. When `sequence_length > 1`, `utils._populate_response_from_sequence_data` makes each value a `list_val` and adds a `<feature>__timestamps` column; latest-mode views raise `SequenceReadNotSupported`.
+
 ### `get_historical_features`
 ```
 store.get_historical_features(entity_df, features)

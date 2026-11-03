@@ -94,6 +94,18 @@ message GetOnlineFeaturesRequest {
 
     // Whether to include feature view version metadata in the response
     bool include_feature_view_version_metadata = 6;
+
+    // Number of events to return per entity for feature views with
+    // online_config mode="sequence". 0 or 1 returns one value per feature.
+    // Above 1, each feature value is a list, with a "<feature>__timestamps"
+    // list next to it.
+    int32 sequence_length = 7;
+
+    // Number of events to skip per entity, for paging through a sequence.
+    int32 sequence_offset = 8;
+
+    // "desc" (newest first, the default when empty) or "asc" (oldest first).
+    string sequence_order = 9;
 }
 
 message GetOnlineFeaturesResponse {
