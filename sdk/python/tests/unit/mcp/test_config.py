@@ -25,6 +25,7 @@ ENV_VARS = [
     "FEAST_MCP_OIDC_CLIENT_SECRET",
     "FEAST_MCP_OIDC_AUDIENCE",
     "FEAST_MCP_BASE_URL",
+    "FEAST_MCP_SESSION_STORAGE_BACKEND",
     "FEAST_MCP_TIMEOUT",
 ]
 
@@ -58,6 +59,8 @@ class TestDefaults:
         assert cfg.server.workers is None
         assert cfg.auth.mode == "passthrough"
         assert cfg.timeout == 30.0
+        assert cfg.session_storage.backend is None
+        assert cfg.session_storage.options == {}
 
 
 class TestYamlFile:
@@ -130,6 +133,11 @@ class TestPrecedence:
             ("FEAST_MCP_AUTH_MODE", "auth_mode", ("auth", "mode")),
             ("FEAST_MCP_OIDC_CLIENT_ID", "oidc_client_id", ("auth", "client_id")),
             ("FEAST_MCP_BASE_URL", "base_url", ("auth", "base_url")),
+            (
+                "FEAST_MCP_SESSION_STORAGE_BACKEND",
+                "session_storage_backend",
+                ("session_storage", "backend"),
+            ),
         ],
     )
     def test_every_option_honours_cli_over_env(
@@ -156,6 +164,33 @@ class TestCoercion:
 
     def test_workers_stays_none_when_unset(self, isolated_env):
         assert load_config().server.workers is None
+
+
+class TestSessionStorage:
+    def test_backend_and_options_are_read_from_yaml(self, isolated_env):
+        path = write_yaml(
+            isolated_env,
+            """
+            session_storage:
+              backend: redis
+              options:
+                url: redis://cache:6379
+            """,
+        )
+        cfg = load_config(config_path=path)
+        assert cfg.session_storage.backend == "redis"
+        assert cfg.session_storage.options == {"url": "redis://cache:6379"}
+
+    def test_non_mapping_options_are_dropped(self, isolated_env):
+        path = write_yaml(
+            isolated_env,
+            "session_storage:\n  backend: redis\n  options: nonsense\n",
+        )
+        assert load_config(config_path=path).session_storage.options == {}
+
+    def test_backend_can_come_from_the_environment(self, isolated_env, monkeypatch):
+        monkeypatch.setenv("FEAST_MCP_SESSION_STORAGE_BACKEND", "valkey")
+        assert load_config().session_storage.backend == "valkey"
 
 
 class TestMissingYaml:
