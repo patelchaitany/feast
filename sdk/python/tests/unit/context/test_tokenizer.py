@@ -6,6 +6,7 @@ from feast.context.tokenizer import (
     Cl100kBaseTokenizer,
     O200kBaseTokenizer,
     TiktokenTokenizer,
+    Tokenizer,
     TokenizerName,
     get_tokenizer,
 )
@@ -14,6 +15,17 @@ from feast.errors import FeastInvalidBaseClass
 
 class FakeTokenizer:
     """Named like a tokenizer, but not a Tokenizer subclass."""
+
+
+class WordTokenizer(Tokenizer):
+    """Counts words and nothing more, so cutting falls back to search."""
+
+    @property
+    def name(self) -> str:
+        return "words"
+
+    def count_tokens(self, text: str) -> int:
+        return len(text.split())
 
 
 class TestApproximateTokenizer:
@@ -62,6 +74,101 @@ class TestTiktokenTokenizer:
         pytest.importorskip("tiktoken")
         with pytest.raises(TokenizerNotFoundError):
             TiktokenTokenizer("no_such_encoding")
+
+
+class TestPrefixAndSuffix:
+    def test_the_estimate_keeps_whole_tokens_of_characters(self):
+        tokenizer = ApproximateTokenizer()
+        assert tokenizer.prefix("abcdefghij", 2) == "abcdefgh"
+        assert tokenizer.suffix("abcdefghij", 2) == "cdefghij"
+
+    def test_text_that_fits_comes_back_whole(self):
+        assert ApproximateTokenizer().prefix("abcde", 2) == "abcde"
+        assert WordTokenizer().suffix("one two", 2) == "one two"
+
+    @pytest.mark.parametrize("tokenizer", [ApproximateTokenizer(), WordTokenizer()])
+    def test_zero_tokens_keep_nothing(self, tokenizer):
+        assert tokenizer.prefix("one two", 0) == ""
+        assert tokenizer.suffix("one two", 0) == ""
+
+    def test_a_tokenizer_that_only_counts_is_cut_by_search(self):
+        tokenizer = WordTokenizer()
+        assert tokenizer.prefix("one two three", 2) == "one two "
+        assert tokenizer.suffix("one two three", 2) == " two three"
+
+    def test_empty_text_stays_empty(self):
+        assert WordTokenizer().prefix("", 3) == ""
+        assert WordTokenizer().suffix("", 3) == ""
+
+    @pytest.mark.parametrize("cut", ["prefix", "suffix"])
+    def test_rejects_negative_max_tokens(self, cut):
+        with pytest.raises(ValueError, match="max_tokens"):
+            getattr(ApproximateTokenizer(), cut)("abcd", -1)
+
+    @pytest.mark.parametrize(
+        "encoding", [TokenizerName.CL100K_BASE.value, TokenizerName.O200K_BASE.value]
+    )
+    def test_tiktoken_cuts_on_token_boundaries(self, encoding):
+        pytest.importorskip("tiktoken")
+        tokenizer = TiktokenTokenizer(encoding)
+        assert tokenizer.prefix("Hello world", 1) == "Hello"
+        assert tokenizer.suffix("Hello world", 1) == " world"
+
+    @pytest.mark.parametrize(
+        "encoding", [TokenizerName.CL100K_BASE.value, TokenizerName.O200K_BASE.value]
+    )
+    def test_tiktoken_cuts_never_split_a_character(self, encoding):
+        pytest.importorskip("tiktoken")
+        tokenizer = TiktokenTokenizer(encoding)
+        # Both encodings spell some of these characters over several tokens.
+        text = "Watched 北京の天気 and 龘 twice 👩‍👩‍👧‍👦, then <|endoftext|> in Ελληνικά 🦜"
+        total = tokenizer.count_tokens(text)
+        for max_tokens in range(total + 1):
+            start = tokenizer.prefix(text, max_tokens)
+            end = tokenizer.suffix(text, max_tokens)
+            # A split character would decode to U+FFFD and match neither.
+            assert text.startswith(start) and text.endswith(end)
+            assert tokenizer.count_tokens(start) <= max_tokens
+            assert tokenizer.count_tokens(end) <= max_tokens
+        assert tokenizer.prefix(text, total) == text
+
+
+class TestTiktokenEncodings:
+    @pytest.fixture
+    def encodes(self, monkeypatch):
+        """The texts tiktoken actually encodes, on a tokenizer of its own."""
+        pytest.importorskip("tiktoken")
+        tokenizer = TiktokenTokenizer(TokenizerName.CL100K_BASE.value)
+        encoded = []
+        real = TiktokenTokenizer._encode_uncached
+
+        def record(self, text):
+            encoded.append(len(text))
+            return real(self, text)
+
+        monkeypatch.setattr(TiktokenTokenizer, "_encode_uncached", record)
+        return tokenizer, encoded
+
+    def test_cutting_a_long_text_just_counted_does_not_encode_it_again(self, encodes):
+        tokenizer, encoded = encodes
+        text = "Watched an episode of Breaking Bad. " * 100
+        tokens = tokenizer.count_tokens(text)
+        start = tokenizer.prefix(text, tokens // 2)
+        assert encoded[:2] == [len(text), len(start)]  # the text, then the piece
+
+    def test_short_texts_are_not_remembered(self, encodes):
+        tokenizer, encoded = encodes
+        tokenizer.count_tokens("Hello world")
+        tokenizer.count_tokens("Hello world")
+        assert encoded == [11, 11]
+
+    def test_very_long_texts_are_not_remembered(self, encodes):
+        # Holding their tokens between renders would cost megabytes.
+        tokenizer, encoded = encodes
+        text = "word " * 20_000
+        tokenizer.count_tokens(text)
+        tokenizer.count_tokens(text)
+        assert encoded == [len(text), len(text)]
 
 
 class TestEquality:
@@ -137,5 +244,7 @@ class TestFallback:
         assert any("tiktoken" in record.message for record in caplog.records)
 
     def test_fallback_disabled_raises(self, no_tiktoken):
-        with pytest.raises(TokenizerUnavailableError, match="pip install tiktoken"):
+        with pytest.raises(
+            TokenizerUnavailableError, match=r"pip install 'feast\[llm\]'"
+        ):
             get_tokenizer(TokenizerName.CL100K_BASE, fallback=False)
