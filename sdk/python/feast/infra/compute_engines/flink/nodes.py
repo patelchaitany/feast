@@ -26,6 +26,7 @@ from feast.infra.compute_engines.utils import (
     create_offline_store_retrieval_job,
     find_entity_timestamp_column,
     infer_entity_timestamp_column,
+    write_rows_to_online_store,
 )
 from feast.utils import _convert_arrow_to_proto
 
@@ -282,6 +283,7 @@ class FlinkSourceReadNode(DAGNode):
         split_num: int,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
+        pull_all: bool = False,
     ) -> None:
         super().__init__(name)
         self.source = source
@@ -290,6 +292,7 @@ class FlinkSourceReadNode(DAGNode):
         self.split_num = split_num
         self.start_time = start_time
         self.end_time = end_time
+        self.pull_all = pull_all
 
     def execute(self, context: ExecutionContext) -> DAGValue:
         retrieval_job = create_offline_store_retrieval_job(
@@ -298,6 +301,7 @@ class FlinkSourceReadNode(DAGNode):
             context=context,
             start_time=self.start_time,
             end_time=self.end_time,
+            pull_all=self.pull_all,
         )
         flink_table, columns = _retrieval_job_to_flink_table(
             retrieval_job, self.table_env, self.split_num
@@ -596,11 +600,13 @@ class FlinkDedupNode(DAGNode):
         table_env: Any,
         split_num: int,
         inputs: Optional[List[DAGNode]] = None,
+        keep: int = 1,
     ) -> None:
         super().__init__(name, inputs=inputs)
         self.column_info = column_info
         self.table_env = table_env
         self.split_num = split_num
+        self.keep = keep
 
     def execute(self, context: ExecutionContext) -> DAGValue:
         input_value = self.get_single_input_value(context)
@@ -641,7 +647,7 @@ class FlinkDedupNode(DAGNode):
             f"ORDER BY {', '.join(order_exprs)}"
             f") AS {_quote_identifier(DEDUP_ROW_NUMBER)} "
             f"FROM {_quote_identifier(view_name)}"
-            f") WHERE {_quote_identifier(DEDUP_ROW_NUMBER)} = 1"
+            f") WHERE {_quote_identifier(DEDUP_ROW_NUMBER)} <= {int(self.keep)}"
         )
         return _sql_value(
             self.table_env,
@@ -779,9 +785,10 @@ class FlinkOutputNode(DAGNode):
                     rows_to_write = _convert_arrow_to_proto(
                         batch, self.feature_view, join_key_to_value_type
                     )
-                    context.online_store.online_write_batch(
+                    write_rows_to_online_store(
+                        context.online_store,
                         config=context.repo_config,
-                        table=self.feature_view,
+                        feature_view=self.feature_view,
                         data=rows_to_write,
                         progress=lambda x: None,
                     )

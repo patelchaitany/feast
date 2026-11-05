@@ -45,6 +45,7 @@ class SparkFeatureBuilder(FeatureBuilder):
             self.spark_session,
             start_time,
             end_time,
+            pull_all=self._sequence_max_length(view) is not None,
         )
         self.nodes.append(node)
         return node
@@ -101,7 +102,11 @@ class SparkFeatureBuilder(FeatureBuilder):
     def build_dedup_node(self, view, input_node):
         column_info = self.get_column_info(view)
         node = SparkDedupNode(
-            f"{view.name}:dedup", column_info, self.spark_session, inputs=[input_node]
+            f"{view.name}:dedup",
+            column_info,
+            self.spark_session,
+            inputs=[input_node],
+            keep=self._dedup_keep(view),
         )
         self.nodes.append(node)
         return node
