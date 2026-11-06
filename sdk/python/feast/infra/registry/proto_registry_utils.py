@@ -1,5 +1,5 @@
 from functools import wraps
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from feast import utils
 from feast.base_feature_view import BaseFeatureView
@@ -13,6 +13,7 @@ from feast.errors import (
     FeatureViewVersionNotFound,
     PermissionObjectNotFoundException,
     ProjectObjectNotFoundException,
+    PromptNotFoundException,
     SavedDatasetNotFound,
     ValidationReferenceNotFound,
 )
@@ -23,6 +24,8 @@ from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.permissions.permission import Permission
 from feast.project import Project
 from feast.project_metadata import ProjectMetadata
+from feast.prompt import Prompt
+from feast.protos.feast.core.Prompt_pb2 import Prompt as PromptProto
 from feast.protos.feast.core.Registry_pb2 import ProjectMetadata as ProjectMetadataProto
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.saved_dataset import SavedDataset, ValidationReference
@@ -518,3 +521,58 @@ def get_project(registry_proto: RegistryProto, name: str) -> Project:
         if projects_proto.spec.name == name:
             return Project.from_proto(projects_proto)
     raise ProjectObjectNotFoundException(name=name)
+
+
+def get_prompt(
+    registry_proto: RegistryProto,
+    name: str,
+    project: str,
+    version: Optional[int] = None,
+) -> Prompt:
+    """The latest version of a prompt, or the version given."""
+    versions = [
+        prompt_proto
+        for prompt_proto in registry_proto.prompts
+        if prompt_proto.spec.project == project and prompt_proto.spec.name == name
+    ]
+    if version is None and versions:
+        return Prompt.from_proto(
+            max(versions, key=lambda prompt_proto: prompt_proto.meta.version_number)
+        )
+    for prompt_proto in versions:
+        if prompt_proto.meta.version_number == version:
+            return Prompt.from_proto(prompt_proto)
+    raise PromptNotFoundException(name, project=project, version=version)
+
+
+def list_prompts(
+    registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
+) -> List[Prompt]:
+    """The latest version of each prompt in the project, ordered by name."""
+    latest: Dict[str, PromptProto] = {}
+    for prompt_proto in registry_proto.prompts:
+        if prompt_proto.spec.project != project:
+            continue
+        current = latest.get(prompt_proto.spec.name)
+        if current is None or (
+            prompt_proto.meta.version_number > current.meta.version_number
+        ):
+            latest[prompt_proto.spec.name] = prompt_proto
+    return [
+        Prompt.from_proto(latest[name])
+        for name in sorted(latest)
+        if utils.has_all_tags(dict(latest[name].spec.tags), tags)
+    ]
+
+
+def list_prompt_versions(
+    registry_proto: RegistryProto, name: str, project: str
+) -> List[Prompt]:
+    """Every version of a prompt, oldest first. Empty for an unknown prompt."""
+    versions = [
+        prompt_proto
+        for prompt_proto in registry_proto.prompts
+        if prompt_proto.spec.project == project and prompt_proto.spec.name == name
+    ]
+    versions.sort(key=lambda prompt_proto: prompt_proto.meta.version_number)
+    return [Prompt.from_proto(prompt_proto) for prompt_proto in versions]

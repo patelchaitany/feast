@@ -37,6 +37,7 @@ from feast.errors import (
     PermissionNotFoundException,
     ProjectNotFoundException,
     ProjectObjectNotFoundException,
+    PromptNotFoundException,
     SavedDatasetNotFound,
     ValidationReferenceNotFound,
 )
@@ -53,6 +54,7 @@ from feast.permissions.auth_model import AuthConfig, NoAuthConfig
 from feast.permissions.permission import Permission
 from feast.project import Project
 from feast.project_metadata import ProjectMetadata
+from feast.prompt import Prompt, _assign_version
 from feast.protos.feast.core.FeatureViewVersion_pb2 import FeatureViewVersionRecord
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.repo_config import RegistryConfig
@@ -95,6 +97,7 @@ class FeastObjectType(Enum):
     LABEL_VIEW = "label view"
     FEATURE_SERVICE = "feature service"
     PERMISSION = "permission"
+    PROMPT = "prompt"
 
     @staticmethod
     def get_objects_from_registry(
@@ -120,6 +123,7 @@ class FeastObjectType(Enum):
                 project=project
             ),
             FeastObjectType.PERMISSION: registry.list_permissions(project=project),
+            FeastObjectType.PROMPT: registry.list_prompts(project=project),
         }
 
     @staticmethod
@@ -136,6 +140,7 @@ class FeastObjectType(Enum):
             FeastObjectType.LABEL_VIEW: repo_contents.label_views,
             FeastObjectType.FEATURE_SERVICE: repo_contents.feature_services,
             FeastObjectType.PERMISSION: repo_contents.permissions,
+            FeastObjectType.PROMPT: repo_contents.prompts,
         }
 
 
@@ -505,6 +510,73 @@ class Registry(BaseRegistry):
             project=project, allow_cache=allow_cache
         )
         return proto_registry_utils.get_feature_service(registry_proto, name, project)
+
+    def apply_prompt(self, prompt: Prompt, project: str, commit: bool = True):
+        self._prepare_registry_for_changes(project)
+        assert self.cached_registry_proto
+
+        versions = [
+            prompt_proto
+            for prompt_proto in self.cached_registry_proto.prompts
+            if prompt_proto.spec.name == prompt.name
+            and prompt_proto.spec.project == project
+        ]
+        if not _assign_version(prompt, versions):
+            return
+        prompt_proto = prompt.to_proto()
+        prompt_proto.spec.project = project
+        self.cached_registry_proto.prompts.append(prompt_proto)
+        if commit:
+            self.commit()
+
+    def delete_prompt(self, name: str, project: str, commit: bool = True):
+        self._prepare_registry_for_changes(project)
+        assert self.cached_registry_proto
+
+        kept = [
+            prompt_proto
+            for prompt_proto in self.cached_registry_proto.prompts
+            if not (
+                prompt_proto.spec.name == name and prompt_proto.spec.project == project
+            )
+        ]
+        if len(kept) == len(self.cached_registry_proto.prompts):
+            raise PromptNotFoundException(name, project)
+        del self.cached_registry_proto.prompts[:]
+        self.cached_registry_proto.prompts.extend(kept)
+        if commit:
+            self.commit()
+
+    def get_prompt(
+        self,
+        name: str,
+        project: str,
+        version: Optional[int] = None,
+        allow_cache: bool = False,
+    ) -> Prompt:
+        registry_proto = self._get_registry_proto(
+            project=project, allow_cache=allow_cache
+        )
+        return proto_registry_utils.get_prompt(registry_proto, name, project, version)
+
+    def list_prompts(
+        self,
+        project: str,
+        allow_cache: bool = False,
+        tags: Optional[dict[str, str]] = None,
+    ) -> List[Prompt]:
+        registry_proto = self._get_registry_proto(
+            project=project, allow_cache=allow_cache
+        )
+        return proto_registry_utils.list_prompts(registry_proto, project, tags)
+
+    def list_prompt_versions(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> List[Prompt]:
+        registry_proto = self._get_registry_proto(
+            project=project, allow_cache=allow_cache
+        )
+        return proto_registry_utils.list_prompt_versions(registry_proto, name, project)
 
     def get_entity(self, name: str, project: str, allow_cache: bool = False) -> Entity:
         registry_proto = self._get_registry_proto(
@@ -1692,6 +1764,9 @@ class Registry(BaseRegistry):
                 list_feature_services = self.list_feature_services(name)
                 for feature_service in list_feature_services:
                     self.delete_feature_service(feature_service.name, name)
+
+                for prompt in self.list_prompts(name):
+                    self.delete_prompt(prompt.name, name)
 
                 list_on_demand_feature_views = self.list_on_demand_feature_views(name)
                 for on_demand_feature_view in list_on_demand_feature_views:
