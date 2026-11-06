@@ -18,6 +18,7 @@ reads its features online and calls the function when it is asked for one.
 """
 
 import inspect
+import re
 import textwrap
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -69,6 +70,8 @@ from feast.version_utils import parse_version, version_tag
 PromptSourceSpec = Union[BaseFeatureView, FeatureViewProjection, RequestSource]
 
 _BUILT_IN_TOKENIZERS = {name.value for name in TokenizerName}
+# prompts:/<name>/<version> or prompts:/<name>@<alias>
+_MLFLOW_PROMPT_URI = re.compile(r"^prompts:/[^/@\s]+(/\d+|@[^/@\s]+)$")
 # Names the rebuilt function finds in scope (see udf_rehydrate._exec_namespace).
 _REHYDRATE_NAMES = {"pd", "pandas", "np", "numpy"}
 
@@ -86,6 +89,10 @@ class RenderedPrompt:
         text: The prompt.
         tokens: Tokens ``text`` takes, counted with the prompt's tokenizer.
         truncated_variables: The template variables cut to fit the budget.
+        template_uri: For a template from MLflow, the version rendered, as
+            ``prompts:/<name>/<version>``. None for an inline template.
+        model_config: For a template from MLflow, the model settings MLflow
+            stores with it, for the application's model call.
     """
 
     name: str
@@ -93,6 +100,8 @@ class RenderedPrompt:
     text: str
     tokens: int
     truncated_variables: Tuple[str, ...] = ()
+    template_uri: Optional[str] = None
+    model_config: Optional[Dict[str, Any]] = None
 
     @property
     def reference(self) -> str:
@@ -107,6 +116,8 @@ class RenderedPrompt:
             "text": self.text,
             "tokens": self.tokens,
             "truncated_variables": list(self.truncated_variables),
+            "template_uri": self.template_uri,
+            "model_config": self.model_config,
         }
 
     def __str__(self) -> str:
@@ -259,22 +270,33 @@ class Prompt:
                 f"or the class path of a Tokenizer subclass; got {tokenizer!r}."
             )
         self._template: Optional[PromptTemplate] = None
+        self._mlflow_templates: Dict[str, PromptTemplate] = {}
+        variable_settings = _variable_settings(variables or {})
+        strategy = OverflowStrategy(
+            overflow_strategy or OverflowStrategy.TRUNCATE_LONGEST
+        )
         if template is not None:
             if max_tokens is None:
                 raise ValueError(
                     "A prompt with a template needs max_tokens: the budget its "
                     "variables are cut to fit."
                 )
-            # Compiles the template and refuses settings for variables it
-            # does not use.
-            self._template = PromptTemplate(
-                name=name,
-                template_string=template,
-                variables=_variable_settings(variables or {}),
-                overflow_strategy=OverflowStrategy(
-                    overflow_strategy or OverflowStrategy.TRUNCATE_LONGEST
-                ),
-            )
+            if is_mlflow_prompt_uri(template):
+                # The wording is loaded from MLflow when the prompt is rendered.
+                if not _MLFLOW_PROMPT_URI.match(template):
+                    raise ValueError(
+                        f"MLflow prompt URI {template!r} must name a version or an "
+                        f"alias: prompts:/<name>/<version> or prompts:/<name>@<alias>."
+                    )
+            else:
+                # Compiles the template and refuses settings for variables it
+                # does not use.
+                self._template = PromptTemplate(
+                    name=name,
+                    template_string=template,
+                    variables=variable_settings,
+                    overflow_strategy=strategy,
+                )
         elif variables or overflow_strategy:
             raise ValueError(
                 "variables and overflow_strategy say how a template's variables "
@@ -287,10 +309,8 @@ class Prompt:
         self.template = template
         self.max_tokens = max_tokens
         self.tokenizer = tokenizer
-        self.variables = dict(self._template.variables) if self._template else {}
-        self.overflow_strategy = (
-            self._template.overflow_strategy if self._template else None
-        )
+        self.variables = dict(variable_settings) if template is not None else {}
+        self.overflow_strategy = strategy if template is not None else None
         self.description = description
         self.tags = dict(tags or {})
         self.owner = owner
@@ -313,7 +333,9 @@ class Prompt:
         """The prompt as ``name@vN``, or its bare name before it is applied."""
         return _reference(self.name, self.version)
 
-    def render(self, values: Mapping[str, Any]) -> RenderedPrompt:
+    def render(
+        self, values: Mapping[str, Any], *, mlflow_tracking_uri: Optional[str] = None
+    ) -> RenderedPrompt:
         """Call the prompt function on one row of values.
 
         ``FeatureStore.render_prompt`` calls this with features read online.
@@ -323,13 +345,15 @@ class Prompt:
         Args:
             values: The prompt's features under their full names
                 (``view__feature``), and its request fields.
+            mlflow_tracking_uri: For a template from MLflow, the MLflow server.
+                None uses ``MLFLOW_TRACKING_URI``, then MLflow's default.
 
         Raises:
             TemplateRenderError: A template variable has no value.
             TokenBudgetExceededError: The prompt cannot fit its budget.
         """
         result = self._function()(*[source.values(values) for source in self.sources])
-        if self._template is not None:
+        if self.template is not None:
             if not isinstance(result, Mapping):
                 raise TypeError(
                     f"Prompt function '{self.function_name}' fills a template, so "
@@ -337,7 +361,10 @@ class Prompt:
                     f"{type(result).__name__}."
                 )
             assert self.max_tokens is not None
-            rendering = self._template.render(
+            template, template_uri, model_config = self._resolve_template(
+                mlflow_tracking_uri
+            )
+            rendering = template.render(
                 result, TokenBudget.of(self.max_tokens, self.tokenizer)
             )
             return RenderedPrompt(
@@ -346,6 +373,8 @@ class Prompt:
                 text=rendering.text,
                 tokens=rendering.budget.consumed,
                 truncated_variables=rendering.truncated_variables,
+                template_uri=template_uri,
+                model_config=model_config,
             )
         if not isinstance(result, str):
             raise TypeError(
@@ -367,6 +396,33 @@ class Prompt:
         return RenderedPrompt(
             name=self.name, version=self.version, text=result, tokens=tokens
         )
+
+    def _resolve_template(
+        self, mlflow_tracking_uri: Optional[str]
+    ) -> Tuple[PromptTemplate, Optional[str], Optional[Dict[str, Any]]]:
+        """The template to render, with the MLflow version and model settings."""
+        if self._template is not None:
+            return self._template, None, None
+        assert self.template is not None and self.overflow_strategy is not None
+        from feast.mlflow_integration.prompts import load_prompt_template
+
+        loaded = load_prompt_template(self.template, mlflow_tracking_uri)
+        template = self._mlflow_templates.get(loaded.uri)
+        if template is None:
+            try:
+                template = PromptTemplate(
+                    name=self.name,
+                    template_string=loaded.template,
+                    variables=self.variables,
+                    overflow_strategy=self.overflow_strategy,
+                )
+            except ValueError as e:
+                raise ValueError(
+                    f"MLflow prompt {loaded.uri} does not fit prompt '{self.name}': {e}"
+                ) from e
+            # A version never changes, so its compiled template can be kept.
+            self._mlflow_templates[loaded.uri] = template
+        return template, loaded.uri, loaded.model_config
 
     def _function(self) -> Callable[..., Any]:
         """The prompt function, rebuilt from its source text once."""
@@ -515,8 +571,11 @@ def prompt(
     Args:
         sources: Feature views, projections such as ``view[["a", "b"]]``, and
             request sources, one per function parameter.
-        template: A Jinja2 template the function's dict fills. Its variables
-            are cut to fit ``max_tokens``, least important first.
+        template: A Jinja2 template the function's dict fills, or the URI of a
+            prompt in the MLflow Prompt Registry (``prompts:/<name>/<version>``
+            or ``prompts:/<name>@<alias>``), whose wording is loaded each time
+            the prompt is rendered. Its variables are cut to fit
+            ``max_tokens``, least important first.
         max_tokens: Most tokens the prompt may take. Without a template, a
             prompt over it is refused rather than cut.
         tokenizer: A built-in tokenizer name, such as ``"cl100k_base"``, or the
@@ -582,6 +641,11 @@ def _assign_version(prompt: Prompt, versions: Iterable[PromptProto]) -> bool:
     prompt.version = latest.meta.version_number + 1 if latest is not None else 1
     prompt.created_timestamp = _utc_now()
     return True
+
+
+def is_mlflow_prompt_uri(template: str) -> bool:
+    """Whether ``template`` names a prompt in the MLflow Prompt Registry."""
+    return template.startswith("prompts:/")
 
 
 def _reference(name: str, version: Optional[int]) -> str:
