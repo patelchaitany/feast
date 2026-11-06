@@ -41,6 +41,7 @@ from .labeling import ConflictPolicy, LabelView
 from .on_demand_feature_view import OnDemandFeatureView
 from .online_config import OnlineConfig
 from .project import Project
+from .prompt import Prompt
 from .repo_config import RepoConfig
 from .stream_feature_view import StreamFeatureView
 from .value_type import ValueType
@@ -84,6 +85,7 @@ __all__ = [
     "OracleSource",
     "ChrononSource",
     "Project",
+    "Prompt",
     "FeastVectorStore",
     "DocEmbedder",
     "SchemaTransformFn",

@@ -48,18 +48,21 @@ from feast.errors import (
     PermissionNotFoundException,
     ProjectNotFoundException,
     ProjectObjectNotFoundException,
+    PromptNotFoundException,
     SavedDatasetNotFound,
     ValidationReferenceNotFound,
 )
 from feast.feature_service import FeatureService
 from feast.feature_view import FeatureView
 from feast.infra.infra_object import Infra
+from feast.infra.registry import proto_registry_utils
 from feast.infra.registry.caching_registry import CachingRegistry
 from feast.labeling.label_view import LabelView
 from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.permissions.permission import Permission
 from feast.project import Project
 from feast.project_metadata import ProjectMetadata
+from feast.prompt import Prompt, _assign_version
 from feast.protos.feast.core.DataSource_pb2 import DataSource as DataSourceProto
 from feast.protos.feast.core.Entity_pb2 import Entity as EntityProto
 from feast.protos.feast.core.FeatureService_pb2 import (
@@ -73,6 +76,7 @@ from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
 )
 from feast.protos.feast.core.Permission_pb2 import Permission as PermissionProto
 from feast.protos.feast.core.Project_pb2 import Project as ProjectProto
+from feast.protos.feast.core.Prompt_pb2 import Prompt as PromptProto
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.protos.feast.core.SavedDataset_pb2 import SavedDataset as SavedDatasetProto
 from feast.protos.feast.core.StreamFeatureView_pb2 import (
@@ -252,6 +256,19 @@ permissions = Table(
 )
 
 Index("idx_permissions_project_id", permissions.c.project_id)
+
+# One row per prompt version; the highest version_number is the active one.
+prompts = Table(
+    "prompts",
+    metadata,
+    Column("prompt_name", String(255), primary_key=True),
+    Column("project_id", String(255), primary_key=True),
+    Column("version_number", Integer, primary_key=True),
+    Column("last_updated_timestamp", BigInteger, nullable=False),
+    Column("prompt_proto", ProtoBytes, nullable=False),
+)
+
+Index("idx_prompts_project_id", prompts.c.project_id)
 
 feature_view_version_history = Table(
     "feature_view_version_history",
@@ -549,6 +566,7 @@ class SqlRegistry(CachingRegistry):
             saved_datasets,
             validation_references,
             permissions,
+            prompts,
             feature_view_version_history,
             label_views,
         }:
@@ -1088,6 +1106,97 @@ class SqlRegistry(CachingRegistry):
             "feature_service_proto",
         )
 
+    def apply_prompt(self, prompt: Prompt, project: str, commit: bool = True):
+        if not self.purge_feast_metadata:
+            self._maybe_init_project_metadata(project)
+        self._initialize_project_if_not_exists(project_name=project)
+
+        with self.write_engine.begin() as conn:
+            rows = conn.execute(
+                select(prompts.c.prompt_proto).where(
+                    prompts.c.prompt_name == prompt.name,
+                    prompts.c.project_id == project,
+                )
+            ).all()
+            versions = [PromptProto.FromString(row.prompt_proto) for row in rows]
+            if not _assign_version(prompt, versions):
+                return
+            prompt_proto = prompt.to_proto()
+            prompt_proto.spec.project = project
+            update_datetime = _utc_now()
+            conn.execute(
+                insert(prompts).values(
+                    prompt_name=prompt.name,
+                    project_id=project,
+                    version_number=prompt.version,
+                    last_updated_timestamp=int(update_datetime.timestamp()),
+                    prompt_proto=prompt_proto.SerializeToString(),
+                )
+            )
+            self.apply_project(
+                self.get_project(name=project, allow_cache=False), commit=True
+            )
+            if not self.purge_feast_metadata:
+                self._set_last_updated_metadata(update_datetime, project, conn)
+
+        if self.cache_mode == "sync":
+            self.refresh()
+
+    def delete_prompt(self, name: str, project: str, commit: bool = True):
+        self._delete_object(
+            prompts, name, project, "prompt_name", PromptNotFoundException
+        )
+
+    def get_prompt(
+        self,
+        name: str,
+        project: str,
+        version: Optional[int] = None,
+        allow_cache: bool = False,
+    ) -> Prompt:
+        if allow_cache:
+            self._refresh_cached_registry_if_necessary()
+            registry_proto = self.cached_registry_proto
+        else:
+            registry_proto = self._prompts_proto(project, name)
+        return proto_registry_utils.get_prompt(registry_proto, name, project, version)
+
+    def list_prompts(
+        self,
+        project: str,
+        allow_cache: bool = False,
+        tags: Optional[dict[str, str]] = None,
+    ) -> List[Prompt]:
+        if allow_cache:
+            self._refresh_cached_registry_if_necessary()
+            registry_proto = self.cached_registry_proto
+        else:
+            registry_proto = self._prompts_proto(project)
+        return proto_registry_utils.list_prompts(registry_proto, project, tags)
+
+    def list_prompt_versions(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> List[Prompt]:
+        if allow_cache:
+            self._refresh_cached_registry_if_necessary()
+            registry_proto = self.cached_registry_proto
+        else:
+            registry_proto = self._prompts_proto(project, name)
+        return proto_registry_utils.list_prompt_versions(registry_proto, name, project)
+
+    def _prompts_proto(self, project: str, name: Optional[str] = None) -> RegistryProto:
+        """The project's prompt versions, all or one prompt's, as a registry proto."""
+        stmt = select(prompts.c.prompt_proto).where(prompts.c.project_id == project)
+        if name is not None:
+            stmt = stmt.where(prompts.c.prompt_name == name)
+        with self.read_engine.begin() as conn:
+            rows = conn.execute(stmt).all()
+        registry_proto = RegistryProto()
+        registry_proto.prompts.extend(
+            PromptProto.FromString(row.prompt_proto) for row in rows
+        )
+        return registry_proto
+
     def delete_data_source(self, name: str, project: str, commit: bool = True):
         return self._delete_object(
             data_sources,
@@ -1553,6 +1662,8 @@ class SqlRegistry(CachingRegistry):
                             obj_proto.project = project_name
                     registry_proto_field.extend(objs)
 
+            r.prompts.extend(self._prompts_proto(project_name).prompts)
+
             # This is suuuper jank. Because of https://github.com/feast-dev/feast/issues/2783,
             # the registry proto only has a single infra field, which we're currently setting as the "last" project.
             r.infra.CopyFrom(self.get_infra(project_name).to_proto())
@@ -1994,6 +2105,7 @@ class SqlRegistry(CachingRegistry):
                     data_sources,
                     entities,
                     permissions,
+                    prompts,
                     feast_metadata,
                     projects,
                 }:

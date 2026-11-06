@@ -64,7 +64,7 @@ expected suffix, e.g. `...OnlineStore`).
 ### Registry
 
 **Purpose**: Metadata store — persists definitions of entities, feature views, data sources,
-feature services, permissions.
+feature services, permissions, prompts.
 
 **Backends and their files:**
 
@@ -101,6 +101,33 @@ registry.apply_feature_view(feature_view, project)
 - `infra/registry/base_registry.py` — abstract interface
 - `infra/registry/proto_registry_utils.py` — proto serialization helpers
 - `infra/registry/caching_registry.py` — adds TTL caching on top of any backend
+
+**Adding a registry object type** (`Prompt` is the latest example): a proto in `protos/feast/core/`
+plus a `repeated` field in `Registry.proto`; the Python class with `to_proto`/`from_proto` and a
+spec-based `__eq__` (the apply diff compares objects with `!=`); `apply_*`/`get_*`/`list_*`/`delete_*`
+on `BaseRegistry`, `registry.py` and `sql.py` (a table typed `ProtoBytes`, added to `proto()`,
+`delete_project` and `teardown`); readers in `proto_registry_utils.py`; a `FeastObjectType`
+member with its `get_objects_from_registry`/`get_objects_from_repo_contents` entries; a field on
+`RepoContents` and a branch in `repo_operations.parse_repo`; delete/apply branches in
+`diff/registry_diff.apply_diff_to_registry`; and the type in `FeatureStore.apply`. Commit the
+generated `*_pb2.py`/`.pyi` files, generated with the same `grpcio-tools`/`mypy-protobuf` versions as
+the existing ones (protobuf 4.25.1 headers) so only the new files change.
+
+**Prompts** (`sdk/python/feast/prompt.py`): `@prompt(sources=[...])` turns a function into a `Prompt`.
+The spec stores the function's source text (`function_source`), one `PromptSource` per parameter
+(view features, or request fields), and the budget/template settings. At definition the decorator
+rejects functions that use module-level names (`inspect.getclosurevars`), checks the parameter count,
+and rebuilds the function with `udf_rehydrate.rehydrate_udf_from_source`, so local renders run the
+same code the feature server does; `from_proto` rebuilds lazily, on first render. `render_prompt`
+reads `prompt.features` with `full_feature_names=True` and passes each source its dict. Each
+`Prompt` version is its own `Registry.prompts` entry (SQL: one `prompts` row keyed by name,
+project and `version_number`); the highest `version_number` is active. `_assign_version` gives an unchanged definition its existing version and a changed one
+the next. Only the file and SQL registries store prompts. On `BaseRegistry`, `list_prompts` and
+`list_prompt_versions` return `[]` (so `feast apply` keeps working on other backends) and
+`apply_prompt`/`get_prompt`/`delete_prompt` raise `NotImplementedError`. `RemoteRegistry` needs
+gRPC methods on the registry server first; its `Proto` RPC rebuilds the registry from RBAC-filtered
+`list_*` calls, so prompts would also need a permission resource type. Until then the feature
+server checks `READ_ONLINE` on the feature views a prompt reads.
 
 ---
 
@@ -173,8 +200,11 @@ class MyOfflineStore(OfflineStore):
 ### LLM Context Assembly (`feast.context`)
 
 **Purpose**: Turn feature values into LLM prompt text that fits a token budget, identically
-offline and online. Plain functions over immutable values; nothing in Feast calls them yet —
-users call them from an `OnDemandFeatureView` whose output is the prompt.
+offline and online. Plain functions over immutable values. `@prompt` (`feast/prompt.py`, see
+Registry) builds the registry object on them: a versioned prompt function plus the sources it
+reads, rendered on request by `FeatureStore.render_prompt` (`get_online_features`, then
+`Prompt.render`) and never written to the online store. Feast builds the prompt only; agents,
+tools and model calls stay in the user's application.
 
 **Directory**: `sdk/python/feast/context/` · **Extra**: `feast[llm]` (`tiktoken`, `Jinja2`)
 
@@ -188,10 +218,10 @@ users call them from an `OnDemandFeatureView` whose output is the prompt.
 | `prompt_template.py` | `PromptTemplate` — named, versioned template with variable settings; YAML/JSON round trip |
 | `errors.py` | `ContextError` and subclasses, e.g. `TokenBudgetExceededError` |
 
-**Where it runs**: wherever the calling ODFV runs (see the `get_online_features` and
-`get_historical_features` flows below) — on every online read by default, at write time with
-`write_to_online_store=True`, and always after the PIT join offline. Prompts that use request
-data must stay read-time.
+**Where it runs**: wherever `render_prompt` or `Prompt.render` is called, or wherever the
+calling ODFV runs (see the `get_online_features` and `get_historical_features` flows below) — on
+every online read by default, at write time with `write_to_online_store=True`, and always after
+the PIT join offline. Prompts that use request data must stay read-time.
 
 **Determinism is the contract**: no clocks, no iteration over unordered collections, no mutation
 of the budget passed in. Any change here must keep the same inputs producing the same prompt,
@@ -200,7 +230,8 @@ or training and serving prompts diverge.
 **ODFV gotcha**: Python-mode UDFs are rebuilt from their source text on registry load
 (`transformation/udf_rehydrate.py`, which exposes only `pd`/`np`), so `feast.context` imports and
 template constants must be inside the UDF body. Inputs are column lists both online and offline,
-so loop over rows rather than relying on `singleton=True`.
+so loop over rows rather than relying on `singleton=True`. `@prompt` shares the first rule (its
+function is rebuilt the same way) but checks it at definition; it calls the function once per row.
 
 ---
 
@@ -281,6 +312,7 @@ Endpoints:
 - `POST /push` — push features to online/offline store
 - `POST /write-to-online-store` — write a DataFrame directly to the online store
 - `POST /materialize`, `POST /materialize-incremental` — trigger materialization
+- `GET /prompts/{name}`, `POST /render-prompt` — read a prompt (`name` or `name@vN`), or render it per entity row
 - `GET /health` — health check
 
 The app loads `feature_store.yaml` at startup, creates a `FeatureStore`, and periodically
