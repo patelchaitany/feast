@@ -1043,7 +1043,9 @@ class FeatureStore:
 
         Reads the prompt's features with ``get_online_features``, then calls the
         prompt function on each row. The prompt itself is never written to the
-        online store, so nothing about it needs materializing.
+        online store, so nothing about it needs materializing. A template stored
+        in MLflow is loaded from the ``mlflow`` section's ``tracking_uri``, or
+        ``MLFLOW_TRACKING_URI``.
 
         Args:
             prompt: A prompt, or its name: ``"concierge"`` for its latest version,
@@ -1077,9 +1079,12 @@ class FeatureStore:
             ]
         else:
             rows = [dict(row) for row in entity_rows]
+        mlflow_config = self.config.mlflow
+        tracking_uri = mlflow_config.get_tracking_uri() if mlflow_config else None
         return [
             prompt.render(
-                {**row, **{name: values[i] for name, values in features.items()}}
+                {**row, **{name: values[i] for name, values in features.items()}},
+                mlflow_tracking_uri=tracking_uri,
             )
             for i, row in enumerate(rows)
         ]
