@@ -96,6 +96,7 @@ from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.online_response import OnlineResponse
 from feast.permissions.permission import Permission
 from feast.project import Project
+from feast.prompt import Prompt, RenderedPrompt, parse_prompt_reference
 from feast.protos.feast.serving.ServingService_pb2 import (
     FieldStatus,
     GetOnlineFeaturesResponse,
@@ -974,6 +975,114 @@ class FeatureStore:
         """
         return self.registry.get_feature_service(name, self.project, allow_cache)
 
+    def get_prompt(self, name: str, allow_cache: bool = False) -> Prompt:
+        """
+        Retrieves a prompt: its latest version, or the version ``name`` pins.
+
+        Args:
+            name: Name of the prompt: ``"concierge"`` for its latest version,
+                ``"concierge@v2"`` for version 2.
+            allow_cache: Whether to allow returning the prompt from a cached registry.
+
+        Returns:
+            The prompt, with ``version`` set.
+
+        Raises:
+            PromptNotFoundException: The prompt or the version does not exist.
+        """
+        prompt_name, version = parse_prompt_reference(name)
+        return self.registry.get_prompt(
+            prompt_name, self.project, version=version, allow_cache=allow_cache
+        )
+
+    def list_prompts(
+        self, allow_cache: bool = False, tags: Optional[dict[str, str]] = None
+    ) -> List[Prompt]:
+        """
+        Retrieves the latest version of every prompt in the project.
+
+        Args:
+            allow_cache: Whether to allow returning prompts from a cached registry.
+            tags: Filter by tags.
+
+        Returns:
+            A list of prompts, ordered by name.
+        """
+        return self.registry.list_prompts(
+            self.project, allow_cache=allow_cache, tags=tags
+        )
+
+    def list_prompt_versions(
+        self, name: str, allow_cache: bool = False
+    ) -> List[Prompt]:
+        """
+        Retrieves every version of a prompt, oldest first.
+
+        Args:
+            name: Name of the prompt.
+            allow_cache: Whether to allow returning versions from a cached registry.
+
+        Returns:
+            A list of the prompt's versions; empty for an unknown prompt.
+        """
+        return self.registry.list_prompt_versions(
+            name, self.project, allow_cache=allow_cache
+        )
+
+    def render_prompt(
+        self,
+        prompt: Union[str, Prompt],
+        entity_rows: Union[
+            List[Dict[str, Any]],
+            Mapping[str, Union[Sequence[Any], Sequence[ValueProto], RepeatedValue]],
+        ],
+    ) -> List[RenderedPrompt]:
+        """
+        Fills a prompt with features read online, once per entity row.
+
+        Reads the prompt's features with ``get_online_features``, then calls the
+        prompt function on each row. The prompt itself is never written to the
+        online store, so nothing about it needs materializing.
+
+        Args:
+            prompt: A prompt, or its name: ``"concierge"`` for its latest version,
+                ``"concierge@v2"`` for version 2.
+            entity_rows: Entity keys and the prompt's request fields, as
+                ``get_online_features`` takes them: a list of dicts, or a dict
+                of columns.
+
+        Returns:
+            One rendered prompt per entity row, in order, each naming the prompt
+            version it came from.
+
+        Raises:
+            PromptNotFoundException: The prompt or the version does not exist.
+            TokenBudgetExceededError: A prompt cannot fit its budget.
+
+        Examples:
+            >>> store.render_prompt("concierge@v2", [{"user_id": 7}])  # doctest: +SKIP
+        """
+        if isinstance(prompt, str):
+            prompt = self.get_prompt(prompt, allow_cache=True)
+        features = self.get_online_features(
+            features=prompt.features,
+            entity_rows=entity_rows,
+            full_feature_names=True,
+        ).to_dict()
+        if isinstance(entity_rows, Mapping):
+            rows: List[Dict[str, Any]] = [
+                dict(zip(entity_rows.keys(), values))
+                for values in zip(*entity_rows.values())
+            ]
+        else:
+            rows = [dict(row) for row in entity_rows]
+        return [
+            prompt.render(
+                {**row, **{name: values[i] for name, values in features.items()}}
+            )
+            for i, row in enumerate(rows)
+        ]
+
     def get_feature_view(
         self, name: str, allow_registry_cache: bool = False
     ) -> FeatureView:
@@ -1625,9 +1734,10 @@ class FeatureStore:
             FeatureService,
             ValidationReference,
             Permission,
-            List[FeastObject],
+            Prompt,
+            List[Union[FeastObject, Prompt]],
         ],
-        objects_to_delete: Optional[List[FeastObject]] = None,
+        objects_to_delete: Optional[List[Union[FeastObject, Prompt]]] = None,
         partial: bool = True,
         skip_feature_view_validation: bool = False,
         no_promote: bool = False,
@@ -1712,6 +1822,7 @@ class FeatureStore:
             ob for ob in objects if isinstance(ob, ValidationReference)
         ]
         permissions_to_update = [ob for ob in objects if isinstance(ob, Permission)]
+        prompts_to_update = [ob for ob in objects if isinstance(ob, Prompt)]
 
         batch_sources_to_add: List[DataSource] = []
         for data_source in data_sources_set_to_update:
@@ -1812,6 +1923,8 @@ class FeatureStore:
             self.registry.apply_permission(
                 permission, project=self.project, commit=False
             )
+        for prompt in prompts_to_update:
+            self.registry.apply_prompt(prompt, project=self.project, commit=False)
 
         entities_to_delete = []
         views_to_delete = []
@@ -1887,6 +2000,10 @@ class FeatureStore:
             for permission in permissions_to_delete:
                 self.registry.delete_permission(
                     permission.name, project=self.project, commit=False
+                )
+            for prompt in [ob for ob in objects_to_delete if isinstance(ob, Prompt)]:
+                self.registry.delete_prompt(
+                    prompt.name, project=self.project, commit=False
                 )
 
         tables_to_delete: List[FeatureView] = (

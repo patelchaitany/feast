@@ -36,6 +36,7 @@ from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.permissions.permission import Permission
 from feast.project import Project
 from feast.project_metadata import ProjectMetadata
+from feast.prompt import Prompt
 from feast.protos.feast.core.DataSource_pb2 import DataSource as DataSourceProto
 from feast.protos.feast.core.Entity_pb2 import Entity as EntityProto
 from feast.protos.feast.core.FeatureService_pb2 import (
@@ -628,6 +629,103 @@ class BaseRegistry(ABC):
         raise NotImplementedError(
             "get_feature_view_by_version is not implemented for this registry"
         )
+
+    # Prompt operations
+    def apply_prompt(self, prompt: Prompt, project: str, commit: bool = True):
+        """
+        Registers a prompt, as a new version when its definition changed.
+
+        A definition equal to the prompt's latest version changes nothing. Any
+        other definition is stored as the next version, and earlier versions
+        are kept. ``prompt.version`` is set to the version it is stored as.
+
+        Args:
+            prompt: Prompt to register
+            project: Feast project that this prompt belongs to
+            commit: Whether the change should be persisted immediately
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not store prompts yet. Apply prompts "
+            f"to a file or SQL registry."
+        )
+
+    def delete_prompt(self, name: str, project: str, commit: bool = True):
+        """
+        Deletes a prompt and all its versions, or raises an exception if not found.
+
+        Args:
+            name: Name of prompt
+            project: Feast project that this prompt belongs to
+            commit: Whether the change should be persisted immediately
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not store prompts yet. Apply prompts "
+            f"to a file or SQL registry."
+        )
+
+    def get_prompt(
+        self,
+        name: str,
+        project: str,
+        version: Optional[int] = None,
+        allow_cache: bool = False,
+    ) -> Prompt:
+        """
+        Retrieves a prompt: its latest version, or the version given.
+
+        Args:
+            name: Name of prompt
+            project: Feast project that this prompt belongs to
+            version: Version number to retrieve. None retrieves the latest.
+            allow_cache: Whether to allow returning this prompt from a cached registry
+
+        Returns:
+            The prompt, with ``version`` set.
+
+        Raises:
+            PromptNotFoundException: The prompt or the version does not exist.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not store prompts yet. Apply prompts "
+            f"to a file or SQL registry."
+        )
+
+    def list_prompts(
+        self,
+        project: str,
+        allow_cache: bool = False,
+        tags: Optional[dict[str, str]] = None,
+    ) -> List[Prompt]:
+        """
+        Retrieves the latest version of every prompt in a project.
+
+        Args:
+            project: Filter prompts based on project name
+            allow_cache: Whether to allow returning prompts from a cached registry
+            tags: Filter by tags
+
+        Returns:
+            List of prompts, ordered by name. Empty for a registry that does not
+            store prompts.
+        """
+        return []
+
+    def list_prompt_versions(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> List[Prompt]:
+        """
+        Retrieves every version of a prompt, oldest first.
+
+        Args:
+            name: Name of prompt
+            project: Feast project that this prompt belongs to
+            allow_cache: Whether to allow returning versions from a cached registry
+
+        Returns:
+            List of prompt versions; empty for an unknown prompt, and for a
+            registry that does not store prompts
+        """
+        return []
 
     @abstractmethod
     def apply_materialization(
@@ -1276,6 +1374,11 @@ class BaseRegistry(ABC):
             registry_dict["permissions"].append(
                 self._message_to_sorted_dict(permission.to_proto())
             )
+        for prompt in self.list_prompts(project=project):
+            for version in self.list_prompt_versions(prompt.name, project=project):
+                registry_dict["prompts"].append(
+                    self._message_to_sorted_dict(version.to_proto())
+                )
 
         return registry_dict
 

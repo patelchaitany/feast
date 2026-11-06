@@ -28,6 +28,7 @@ Commands:
   materialize              Run a (non-incremental) materialization job to...
   materialize-incremental  Run an incremental materialization job to ingest...
   permissions              Access permissions
+  prompts                  Access prompts
   registry                 Manage the feature registry
   registry-dump            Print contents of the metadata registry
   teardown                 Tear down deployed feature store infrastructure
@@ -507,6 +508,41 @@ reader             driver_hourly_stats_fresh   FeatureView      DESCRIBE
 ...
 ```
 
+
+## Prompts
+
+List all prompts at their latest version
+
+```text
+feast prompts list
+
+Options:
+  --tags TEXT  Filter by tags (e.g. --tags 'key:value' --tags 'key:value,
+               key:value, ...'). Items return when ALL tags match.
+```
+
+```text
+NAME               VERSION    MAX TOKENS  FEATURES
+restaurant_prompt        2           256  user_profile:name, user_profile:recent_visits
+```
+
+List every version of a prompt
+
+```text
+feast prompts list-versions PROMPT_NAME
+```
+
+```text
+VERSION              CREATED
+restaurant_prompt@v1  2026-11-02 10:30:00+00:00
+restaurant_prompt@v2  2026-11-05 14:22:00+00:00
+```
+
+Describe a prompt: its latest version, or `PROMPT_NAME@vN` for version N
+
+```text
+feast prompts describe restaurant_prompt@v1
+```
 
 ## Registry
 
