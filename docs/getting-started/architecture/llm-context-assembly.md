@@ -71,6 +71,31 @@ def restaurant_prompt(user_profile, request):
 
 Apply it with the rest of the repository: `feast apply`.
 
+### Templates stored in MLflow
+
+The template can also live in the [MLflow Prompt Registry](https://mlflow.org/docs/latest/genai/prompt-registry/), so the people who write the wording edit and roll it out there, while Feast still supplies the features and the token budget. Pass the prompt's MLflow URI instead of the wording:
+
+```python
+@prompt(
+    sources=[user_profile, location_request],
+    template="prompts:/restaurant_prompt@production",  # or prompts:/restaurant_prompt/3
+    max_tokens=256,
+    variables={"name": {"priority": "critical"}},
+)
+def restaurant_prompt(user_profile, request):
+    return {
+        "name": user_profile["name"],
+        "location": request["location"],
+        "recent_visits": user_profile["recent_visits"],
+    }
+```
+
+* Feast loads the wording each time it renders the prompt, from the `tracking_uri` in the `mlflow` section of `feature_store.yaml`, or `MLFLOW_TRACKING_URI`. MLflow caches a version for good and an alias for 60 seconds, so moving `@production` reaches every render within a minute, with no `feast apply`.
+* The URI must name a version (`/3`) or an alias (`@production`, `@latest`). Only MLflow text prompts are supported, not chat prompts.
+* Each rendered prompt reports the MLflow version it used in `template_uri` (for example `prompts:/restaurant_prompt/7`), and MLflow's `model_config` for your model call.
+* The Feast version changes when the function, sources, budget or URI change; the MLflow version changes when the wording does. Pin a version (`/7`) to rebuild training data exactly.
+* Rendering needs the `mlflow` extra (`feast[mlflow]`) and MLflow 2.21 or later.
+
 ## Versions
 
 Every time `feast apply` sees a changed prompt, whether its function, sources or settings, it stores the new definition as the next version and keeps the old ones.
@@ -84,7 +109,7 @@ Every time `feast apply` sees a changed prompt, whether its function, sources or
 
 | From | Call | Returns |
 |---|---|---|
-| Python | `store.render_prompt("restaurant_prompt", [{"user_id": "user3", "location": "Chicago"}])` | One `RenderedPrompt` per entity row: `text`, `version`, `tokens`, `truncated_variables` |
+| Python | `store.render_prompt("restaurant_prompt", [{"user_id": "user3", "location": "Chicago"}])` | One `RenderedPrompt` per entity row: `text`, `version`, `tokens`, `truncated_variables`, and for an MLflow template `template_uri` and `model_config` |
 | Any language | `POST /render-prompt` on the feature server, with `{"prompt": "restaurant_prompt@v2", "entities": {"user_id": ["user3"], "location": ["Chicago"]}}` | The same, in JSON |
 | Definition only | `store.get_prompt("restaurant_prompt@v1")`, `GET /prompts/restaurant_prompt@v1`, or `feast prompts describe restaurant_prompt@v1` | The function's source and settings |
 | Training and evaluation | `get_historical_features(entity_df, features=prompt.features, full_feature_names=True)`, then `prompt.render(row)` for each row | The prompt each row would have been served, from point-in-time features |
@@ -167,6 +192,7 @@ A prompt built this way is a feature, not a `@prompt`: it has no versions of its
 ## Code
 
 * `sdk/python/feast/prompt.py`: the `@prompt` decorator, `Prompt` and `RenderedPrompt`.
+* `sdk/python/feast/mlflow_integration/prompts.py`: loads templates from the MLflow Prompt Registry.
 * `protos/feast/core/Prompt.proto`: one message per prompt version, in `Registry.prompts`.
 * Registry: `apply_prompt`, `get_prompt`, `list_prompts`, `list_prompt_versions` and `delete_prompt` in `infra/registry/base_registry.py`, `registry.py` (file) and `sql.py`, with shared readers in `proto_registry_utils.py`.
 * `feature_store.py`: `get_prompt`, `list_prompts`, `list_prompt_versions` and `render_prompt`. `feature_server.py`: `GET /prompts/{name}` and `POST /render-prompt`. `cli/prompts.py`: `feast prompts`.
