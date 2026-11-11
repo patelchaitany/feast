@@ -22,6 +22,7 @@ from feast.protos.feast.serving.GrpcServer_pb2_grpc import (
 from feast.protos.feast.serving.ServingService_pb2 import (
     GetOnlineFeaturesRequest,
     GetOnlineFeaturesResponse,
+    SequenceOrder,
 )
 
 logger = logging.getLogger(__name__)
@@ -154,7 +155,9 @@ class GrpcFeatureServer(GrpcFeatureServerServicer):
             request.full_feature_names,
             sequence_length=request.sequence_length,
             sequence_offset=request.sequence_offset,
-            sequence_order=request.sequence_order or "desc",
+            sequence_order="asc"
+            if request.sequence_order == SequenceOrder.ASC
+            else "desc",
         ).proto
 
         return result
