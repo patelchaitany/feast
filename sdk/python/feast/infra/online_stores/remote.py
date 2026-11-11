@@ -41,9 +41,11 @@ from feast.infra.registry.base_registry import BaseRegistry
 from feast.online_response import OnlineResponse
 from feast.permissions.client.http_auth_requests_wrapper import HttpSessionManager
 from feast.protos.feast.serving.ServingService_pb2 import (
+    EntitySequence,
     FieldStatus,
     GetOnlineFeaturesResponse,
     GetOnlineFeaturesResponseMetadata,
+    SequenceEvent,
 )
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import RepeatedValue
@@ -251,8 +253,38 @@ class RemoteOnlineStore(OnlineStore):
                 )
             proto.results.append(fv)
 
+        for sequence in resp_json.get("sequences") or []:
+            proto.sequences.append(
+                EntitySequence(
+                    feature_view=sequence.get("feature_view", ""),
+                    entity_key=self._json_values_to_protos(
+                        sequence.get("entity_key", {})
+                    ),
+                    events=[
+                        SequenceEvent(
+                            event_timestamp_ms=event["event_timestamp_ms"],
+                            features=self._json_values_to_protos(
+                                event.get("features", {})
+                            ),
+                        )
+                        for event in sequence.get("events", [])
+                    ],
+                    total_count=sequence.get("total_count", 0),
+                )
+            )
+
         proto.status = True
         return OnlineResponse(proto)
+
+    @staticmethod
+    def _json_values_to_protos(values: Dict[str, Any]) -> Dict[str, ValueProto]:
+        """Convert the native JSON values of a feature server response to protos."""
+        return {
+            name: ValueProto()
+            if value is None
+            else python_values_to_proto_values([value])[0]
+            for name, value in values.items()
+        }
 
     def online_write_batch(
         self,

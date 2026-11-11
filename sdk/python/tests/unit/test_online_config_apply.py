@@ -5,11 +5,11 @@ from typing import Optional
 from unittest.mock import AsyncMock, patch
 
 import pandas as pd
-import pytest
 
 from feast import Entity, FeatureStore, FeatureView, Field, OnlineConfig, ValueType
-from feast.errors import SequenceReadNotSupported
+from feast.feature_server_utils import convert_response_to_dict
 from feast.infra.offline_stores.file_source import FileSource
+from feast.infra.online_stores.online_store import SequenceRead
 from feast.infra.online_stores.sqlite import SqliteOnlineStore, SqliteOnlineStoreConfig
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.repo_config import RepoConfig
@@ -139,7 +139,7 @@ def test_write_to_online_store_routes_by_write_mode(tmp_path: Path) -> None:
         store.teardown()
 
 
-def test_get_online_features_reads_sequences(tmp_path: Path) -> None:
+def test_get_online_features_returns_sequences(tmp_path: Path) -> None:
     store = _feature_store(tmp_path)
     source = FileSource(path="events.parquet", timestamp_field="event_timestamp")
     entity = Entity(name="event", join_keys=["event_id"], value_type=ValueType.INT64)
@@ -158,7 +158,7 @@ def test_get_online_features_reads_sequences(tmp_path: Path) -> None:
         name="event_latest", entities=[entity], schema=schema, source=source
     )
     t1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    t2 = t1 + timedelta(minutes=1)
+    t2 = t1 + timedelta(minutes=1, milliseconds=250)
     events = [
         (t2, {"event_value": ValueProto(float_val=2.0)}),
         (t1, {"event_value": ValueProto(float_val=1.0)}),
@@ -166,7 +166,9 @@ def test_get_online_features_reads_sequences(tmp_path: Path) -> None:
 
     def read_sequence(config, table, entity_keys, requested_features, limit, **_):
         return [
-            events[:limit] if key.entity_values[0].int64_val == 1 else []
+            SequenceRead(events[:limit], 5)
+            if key.entity_values[0].int64_val == 1
+            else SequenceRead([], 0)
             for key in entity_keys
         ]
 
@@ -175,31 +177,48 @@ def test_get_online_features_reads_sequences(tmp_path: Path) -> None:
         with patch.object(
             SqliteOnlineStore, "online_read_sequence", side_effect=read_sequence
         ) as online_read_sequence:
-            sequences = store.get_online_features(
-                features=["event_sequence:event_value"],
+            response = store.get_online_features(
+                features=["event_sequence:event_value", "event_latest:event_value"],
                 entity_rows=[{"event_id": 1}, {"event_id": 2}],
+                full_feature_names=True,
                 sequence_length=2,
                 sequence_order="asc",
-            ).to_dict()
+            )
             latest = store.get_online_features(
                 features=["event_sequence:event_value"],
                 entity_rows=[{"event_id": 1}],
-            ).to_dict()
-
-        assert sequences == {
-            "event_id": [1, 2],
-            "event_value": [[2.0, 1.0], None],
-            "event_value__timestamps": [[t2, t1], None],
-        }
-        assert latest == {"event_id": [1], "event_value": [2.0]}
-        assert online_read_sequence.call_args_list[0].kwargs["order"] == "asc"
-        assert online_read_sequence.call_args_list[1].kwargs["limit"] == 1
-
-        with pytest.raises(SequenceReadNotSupported, match="event_latest"):
-            store.get_online_features(
-                features=["event_latest:event_value"],
-                entity_rows=[{"event_id": 1}],
-                sequence_length=2,
             )
+
+        # Latest-mode views stay in "results"; sequence-mode views move to "sequences".
+        name = "event_sequence__event_value"
+        assert response.to_dict() == {
+            "event_id": [1, 2],
+            "event_latest__event_value": [None, None],
+        }
+        assert response.to_sequences() == {
+            "event_sequence": [
+                [
+                    {"event_timestamp": t2, name: 2.0},
+                    {"event_timestamp": t1, name: 1.0},
+                ],
+                [],
+            ]
+        }
+        assert response.to_sequence_df()["event_id"].tolist() == [1, 1]
+        assert convert_response_to_dict(response.proto)["sequences"][0] == {
+            "feature_view": "event_sequence",
+            "entity_key": {"event_id": 1},
+            "events": [
+                {"event_timestamp_ms": 1767225660250, "features": {name: 2.0}},
+                {"event_timestamp_ms": 1767225600000, "features": {name: 1.0}},
+            ],
+            "total_count": 5,
+        }
+        assert online_read_sequence.call_args_list[0].kwargs["order"] == "asc"
+
+        # sequence_length 0 or 1 keeps one value per feature in "results".
+        assert latest.to_dict() == {"event_id": [1], "event_value": [2.0]}
+        assert not latest.proto.sequences
+        assert online_read_sequence.call_args_list[1].kwargs["limit"] == 1
     finally:
         store.teardown()
