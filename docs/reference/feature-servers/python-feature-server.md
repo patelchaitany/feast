@@ -197,7 +197,7 @@ curl -X POST \
   }' | jq
 ```
 
-For feature views with `online_config` mode `"sequence"`, set `sequence_length` to get the last N events per entity. Each value is then a list, and a `<feature>__timestamps` column holds the event time of each value in Unix seconds. `sequence_offset` skips events for paging, and `sequence_order` is `"desc"` (newest first, the default) or `"asc"`. A `sequence_length` above 1 on a feature view without sequence mode returns a 422 error. The gRPC `GetOnlineFeaturesRequest` has the same three fields.
+For feature views with `online_config` mode `"sequence"`, set `sequence_length` to get the last N events per entity. `sequence_offset` skips events for paging, and `sequence_order` is `"desc"` (newest first, the default) or `"asc"`. The gRPC `GetOnlineFeaturesRequest` has the same three fields, with `sequence_order` as the `SequenceOrder` enum (`DESC` or `ASC`).
 
 ```
 curl -X POST \
@@ -209,6 +209,26 @@ curl -X POST \
     "sequence_offset": 0,
     "sequence_order": "desc"
   }' | jq
+```
+
+When `sequence_length` is above 1, sequence-mode feature views are returned in `sequences` instead of `results`, one entry per feature view per entity row. Other feature views stay in `results`. `event_timestamp_ms` is the event time in milliseconds since the Unix epoch. `total_count` is the number of events stored for the entity within `max_age` and `max_length`, so you can page with `sequence_offset`. With `sequence_length` of 0 or 1, the response has no `sequences` field.
+
+```json
+{
+  "metadata": {"feature_names": ["user_id"]},
+  "results": [{"values": ["u123"], "statuses": ["PRESENT"], "event_timestamps": ["1970-01-01T00:00:00Z"]}],
+  "sequences": [
+    {
+      "feature_view": "user_interactions",
+      "entity_key": {"user_id": "u123"},
+      "events": [
+        {"event_timestamp_ms": 1722600000000, "features": {"item_id": "i9"}},
+        {"event_timestamp_ms": 1722500000000, "features": {"item_id": "i4"}}
+      ],
+      "total_count": 47
+    }
+  ]
+}
 ```
 
 ### Pushing features to the online and offline stores

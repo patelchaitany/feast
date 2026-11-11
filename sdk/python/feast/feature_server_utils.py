@@ -10,7 +10,10 @@ import math
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Union
 
-from feast.protos.feast.serving.ServingService_pb2 import GetOnlineFeaturesResponse
+from feast.protos.feast.serving.ServingService_pb2 import (
+    EntitySequence,
+    GetOnlineFeaturesResponse,
+)
 from feast.protos.feast.types.Value_pb2 import Value
 
 logger = logging.getLogger(__name__)
@@ -70,6 +73,11 @@ def convert_response_to_dict(response: GetOnlineFeaturesResponse) -> Dict[str, A
         ]
     }
 
+    if response.sequences:
+        result["sequences"] = [
+            _entity_sequence_to_dict(sequence) for sequence in response.sequences
+        ]
+
     if response.HasField("metadata"):
         result["metadata"] = _metadata_to_dict(response.metadata)
 
@@ -77,6 +85,26 @@ def convert_response_to_dict(response: GetOnlineFeaturesResponse) -> Dict[str, A
         result["status"] = response.status
 
     return result
+
+
+def _entity_sequence_to_dict(sequence: EntitySequence) -> Dict[str, Any]:
+    """Convert an EntitySequence to a dict with native values.
+
+    event_timestamp_ms stays a JSON number. MessageToDict would turn the int64
+    into a string.
+    """
+    return {
+        "feature_view": sequence.feature_view,
+        "entity_key": {k: _value_to_native(v) for k, v in sequence.entity_key.items()},
+        "events": [
+            {
+                "event_timestamp_ms": event.event_timestamp_ms,
+                "features": {k: _value_to_native(v) for k, v in event.features.items()},
+            }
+            for event in sequence.events
+        ],
+        "total_count": sequence.total_count,
+    }
 
 
 def _value_to_native(v: Value) -> Optional[Any]:

@@ -203,7 +203,7 @@ store.get_online_features(features, entity_rows)
   └── Return OnlineFeaturesResponse
 ```
 
-Feature views with `online_config.mode="sequence"` are read with `online_read_sequence` instead (`OnlineStore._read_sequence_features_per_fv`), paged by the `sequence_length`, `sequence_offset` and `sequence_order` arguments. When `sequence_length > 1`, `utils._populate_response_from_sequence_data` makes each value a `list_val` and adds a `<feature>__timestamps` column; latest-mode views raise `SequenceReadNotSupported`.
+Feature views with `online_config.mode="sequence"` are read with `online_read_sequence` instead (`OnlineStore._read_sequence_features_per_fv`), paged by the `sequence_length`, `sequence_offset` and `sequence_order` arguments. `online_read_sequence` returns one `SequenceRead(events, total_count)` per entity key. When `sequence_length > 1`, `utils._populate_sequences_from_sequence_data` adds one `EntitySequence` per entity row to `GetOnlineFeaturesResponse.sequences` (field 4), and those feature views are left out of `results`; latest-mode views in the same request stay in `results`. With 0 or 1, `utils._populate_response_from_sequence_data` puts the first event in `results`. `OnlineResponse.to_sequences()` / `to_sequence_df()` read `sequences`, and `feature_server_utils.convert_response_to_dict` writes them to JSON.
 
 ### `get_historical_features`
 ```

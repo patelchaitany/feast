@@ -87,17 +87,23 @@ When you run `feast materialize` or `feast materialize-incremental`, a sequence-
 
 Materializing sequence-mode feature views works with the local, Ray, Spark and Flink compute engines, and needs an online store that supports append writes (currently Redis). Other combinations fail before any data is read.
 
-To read the last N events per entity, pass `sequence_length` to `get_online_features`. Each feature value is then a list, and a `<feature>__timestamps` list holds the event time of each value. `sequence_offset` skips events for paging, and `sequence_order` is `"desc"` (newest first, the default) or `"asc"`. Without `sequence_length`, a sequence-mode feature view returns its newest event. Feature views without sequence mode raise an error when `sequence_length` is above 1. The [Python feature server](../../reference/feature-servers/python-feature-server.md) accepts the same fields.
+To read the last N events per entity, pass `sequence_length` to `get_online_features`. Sequence-mode feature views are then returned as sequences instead of one value per feature: use `to_sequences()` for a dict, or `to_sequence_df()` for a dataframe with one row per event. `sequence_offset` skips events for paging, and `sequence_order` is `"desc"` (newest first, the default) or `"asc"`. Other feature views in the same request still return one value per feature through `to_dict()` and `to_df()`. Without `sequence_length`, a sequence-mode feature view returns its newest event as a single value. The [Python feature server](../../reference/feature-servers/python-feature-server.md) accepts the same fields.
 
 ```python
 response = store.get_online_features(
     features=["user_interactions:item_id"],
     entity_rows=[{"user_id": "u123"}],
     sequence_length=20,
-).to_dict()
-# {"user_id": ["u123"],
-#  "item_id": [["i9", "i4", ...]],
-#  "item_id__timestamps": [[datetime(...), datetime(...), ...]]}
+)
+response.to_sequences()
+# {"user_interactions": [
+#     [{"event_timestamp": datetime(...), "item_id": "i9"},
+#      {"event_timestamp": datetime(...), "item_id": "i4"}, ...]
+# ]}
+response.to_sequence_df()
+#         feature_view user_id                  event_timestamp item_id
+# 0  user_interactions    u123 2026-01-02 10:00:00.250000+00:00      i9
+# 1  user_interactions    u123 2026-01-02 09:58:00+00:00             i4
 ```
 
 {% hint style="warning" %}

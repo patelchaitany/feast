@@ -41,8 +41,10 @@ from feast.field import Field
 from feast.infra.compute_engines.backends.pandas_backend import PandasBackend
 from feast.infra.key_encoding_utils import deserialize_entity_key
 from feast.protos.feast.serving.ServingService_pb2 import (
+    EntitySequence,
     FieldStatus,
     GetOnlineFeaturesResponse,
+    SequenceEvent,
 )
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import FloatList as FloatListProto
@@ -58,6 +60,7 @@ if typing.TYPE_CHECKING:
     from feast.feature_service import FeatureService
     from feast.feature_view import FeatureView
     from feast.feature_view_projection import FeatureViewProjection
+    from feast.infra.online_stores.online_store import SequenceRead
     from feast.infra.registry.base_registry import BaseRegistry
     from feast.on_demand_feature_view import OnDemandFeatureView
 
@@ -1855,21 +1858,13 @@ def _populate_response_from_feature_data(
     """
     n_features = len(requested_features)
 
-    table_name = table.projection.name_to_use()
-    clean_table_name = table.projection.name_alias or table.projection.name
-    feature_refs = [
-        f"{table_name}__{fn}" if full_feature_names else fn for fn in requested_features
-    ]
+    feature_refs = _feature_refs_for_response(
+        requested_features, table, full_feature_names
+    )
     online_features_response.metadata.feature_names.val.extend(feature_refs)
 
     if include_feature_view_version_metadata:
-        existing_names = [
-            fvm.name for fvm in online_features_response.metadata.feature_view_metadata
-        ]
-        if clean_table_name not in existing_names:
-            fv_metadata = online_features_response.metadata.feature_view_metadata.add()
-            fv_metadata.name = clean_table_name
-            fv_metadata.version = getattr(table, "current_version_number", 0) or 0
+        _add_feature_view_version_metadata(online_features_response, table)
 
     null_value = ValueProto()
     null_ts = Timestamp()
@@ -1947,73 +1942,52 @@ def _populate_response_from_feature_data(
         )
 
 
-SEQUENCE_TIMESTAMPS_SUFFIX = "__timestamps"
+def _feature_refs_for_response(
+    requested_features: List[str], table: "FeatureView", full_feature_names: bool
+) -> List[str]:
+    """Return the response names of the features, prefixed with the feature
+    view name when full_feature_names is set."""
+    table_name = table.projection.name_to_use()
+    return [
+        f"{table_name}__{fn}" if full_feature_names else fn for fn in requested_features
+    ]
+
+
+def _add_feature_view_version_metadata(
+    online_features_response: GetOnlineFeaturesResponse, table: "FeatureView"
+) -> None:
+    """Add the feature view's version to the response metadata, once."""
+    clean_table_name = table.projection.name_alias or table.projection.name
+    existing_names = [
+        fvm.name for fvm in online_features_response.metadata.feature_view_metadata
+    ]
+    if clean_table_name not in existing_names:
+        fv_metadata = online_features_response.metadata.feature_view_metadata.add()
+        fv_metadata.name = clean_table_name
+        fv_metadata.version = getattr(table, "current_version_number", 0) or 0
 
 
 def _populate_response_from_sequence_data(
     requested_features: List[str],
-    sequences: List[List[Tuple[datetime, Dict[str, ValueProto]]]],
+    sequences: List["SequenceRead"],
     indexes: Iterable[List[int]],
     online_features_response: GetOnlineFeaturesResponse,
     full_feature_names: bool,
     table: "FeatureView",
     output_len: int,
     include_feature_view_version_metadata: bool,
-    as_lists: bool,
 ):
-    """Populate the GetOnlineFeaturesResponse from online_read_sequence events.
+    """Populate "results" from online_read_sequence, one value per feature.
 
-    Without ``as_lists``, each entity gets the first event's values, like an
-    ``online_read`` row. With ``as_lists``, each feature value is the list of
-    the feature's values across the events, in read order, followed by a
-    ``"<feature>__timestamps"`` column listing each event's time. Entities
-    without events get null values and NOT_FOUND.
+    Each entity gets the first event of its page, like an ``online_read`` row.
+    Entities without events get null values and NOT_FOUND.
     """
-    if not as_lists:
-        read_rows: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = [
-            events[0] if events else (None, None) for events in sequences
-        ]
-        _populate_response_from_feature_data(
-            requested_features,
-            read_rows,
-            indexes,
-            online_features_response,
-            full_feature_names,
-            table,
-            output_len,
-            include_feature_view_version_metadata,
-        )
-        return
-
-    columns = []
-    for name in requested_features:
-        columns += [name, name + SEQUENCE_TIMESTAMPS_SUFFIX]
-
-    read_rows = []
-    for events in sequences:
-        if not events:
-            read_rows.append((None, None))
-            continue
-        timestamps = ValueProto(
-            list_val=RepeatedValueProto(
-                val=[
-                    ValueProto(unix_timestamp_val=int(ts.timestamp()))
-                    for ts, _ in events
-                ]
-            )
-        )
-        row: Dict[str, ValueProto] = {}
-        for name in requested_features:
-            row[name] = ValueProto(
-                list_val=RepeatedValueProto(
-                    val=[values.get(name, ValueProto()) for _, values in events]
-                )
-            )
-            row[name + SEQUENCE_TIMESTAMPS_SUFFIX] = timestamps
-        read_rows.append((events[0][0], row))
-
+    read_rows: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = [
+        sequence.events[0] if sequence.events else (None, None)
+        for sequence in sequences
+    ]
     _populate_response_from_feature_data(
-        columns,
+        requested_features,
         read_rows,
         indexes,
         online_features_response,
@@ -2022,6 +1996,59 @@ def _populate_response_from_sequence_data(
         output_len,
         include_feature_view_version_metadata,
     )
+
+
+def _populate_sequences_from_sequence_data(
+    requested_features: List[str],
+    sequences: List["SequenceRead"],
+    unique_entities: Iterable[Mapping[str, ValueProto]],
+    indexes: Iterable[List[int]],
+    online_features_response: GetOnlineFeaturesResponse,
+    full_feature_names: bool,
+    table: "FeatureView",
+    output_len: int,
+    include_feature_view_version_metadata: bool,
+):
+    """Append one EntitySequence per entity row to the response's "sequences".
+
+    ``sequences`` holds one SequenceRead per unique entity, in the order of
+    ``unique_entities`` and ``indexes``. Rows that repeat an entity get a
+    copy of its sequence, so the sequences of a feature view line up with
+    the entity rows. Entities without events get an empty sequence.
+    """
+    from feast.feature_view import DUMMY_ENTITY_ID
+
+    if include_feature_view_version_metadata:
+        _add_feature_view_version_metadata(online_features_response, table)
+
+    feature_refs = _feature_refs_for_response(
+        requested_features, table, full_feature_names
+    )
+    feature_view_name = table.projection.name_alias or table.projection.name
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    one_ms = timedelta(milliseconds=1)
+
+    rows = [EntitySequence()] * output_len
+    for entity, sequence, destinations in zip(unique_entities, sequences, indexes):
+        entity_sequence = EntitySequence(
+            entity_key={k: v for k, v in entity.items() if k != DUMMY_ENTITY_ID},
+            events=[
+                SequenceEvent(
+                    event_timestamp_ms=(make_tzaware(event_ts) - epoch) // one_ms,
+                    features={
+                        ref: values.get(name, ValueProto())
+                        for name, ref in zip(requested_features, feature_refs)
+                    },
+                )
+                for event_ts, values in sequence.events
+            ],
+            total_count=sequence.total_count,
+            feature_view=feature_view_name,
+        )
+        for out_idx in destinations:
+            rows[out_idx] = entity_sequence
+
+    online_features_response.sequences.extend(rows)
 
 
 def has_all_tags(

@@ -12,6 +12,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from feast import Entity, FeatureView, Field, FileSource, OnlineConfig, RepoConfig
 from feast.errors import FeastExtrasDependencyImportError
 from feast.infra.online_stores.helpers import _mmh3
+from feast.infra.online_stores.online_store import SequenceRead
 from feast.infra.online_stores.redis import (
     GlideReadFrom,
     RedisClient,
@@ -1229,17 +1230,20 @@ def test_online_read_sequence_reads_what_online_append_wrote(
         redis_online_store.online_append(_dedup_config(), feature_view, data)
         key, events = pipe.zadd.call_args.args
         newest_first = sorted(events, key=events.get, reverse=True)
-        pipe.execute.return_value = [newest_first]
+        pipe.execute.return_value = [newest_first, 2]
         result = redis_online_store.online_read_sequence(
             _dedup_config(), feature_view, [data[0][0]], ["feature_10", "feature_11"]
         )
 
     pipe.zrevrangebyscore.assert_called_once_with(key, "+inf", "-inf", 0, 10)
-    assert [(ts, values["feature_10"].int32_val) for ts, values in result[0]] == [
+    pipe.zcount.assert_called_once_with(key, "-inf", "+inf")
+    events = result[0].events
+    assert [(ts, values["feature_10"].int32_val) for ts, values in events] == [
         (start + timedelta(seconds=1), 2),
         (start, 1),
     ]
-    assert result[0][0][1]["feature_11"] == ValueProto()
+    assert events[0][1]["feature_11"] == ValueProto()
+    assert result[0].total_count == 2
 
 
 def test_online_read_sequence_asc_caps_at_max_length_and_skips_old_events(
@@ -1252,7 +1256,8 @@ def test_online_read_sequence_asc_caps_at_max_length_and_skips_old_events(
     now = datetime(2026, 1, 2, tzinfo=timezone.utc)
     entity_key = _single_entity_batch([(now, 1)])[0][0]
     client, pipe = _append_client_and_pipe()
-    pipe.execute.return_value = [[]]
+    # The key briefly holds 12 events between ZADD and the trim.
+    pipe.execute.side_effect = [[[], 12], [12]]
 
     with patch.object(redis_online_store, "_get_client", return_value=client):
         with patch("feast.utils._utc_now", return_value=now):
@@ -1271,6 +1276,7 @@ def test_online_read_sequence_asc_caps_at_max_length_and_skips_old_events(
     cutoff_micros = int((now - timedelta(days=1)).timestamp()) * 1_000_000
     key = redis_online_store._sequence_key(_dedup_config(), feature_view, entity_key)
     pipe.zrangebyscore.assert_called_once_with(key, cutoff_micros, "+inf", 8, 2)
-    assert result == [[]]
-    assert past_max_length == [[]]
+    pipe.zcount.assert_called_with(key, cutoff_micros, "+inf")
+    assert result == [SequenceRead([], 10)]
+    assert past_max_length == [SequenceRead([], 10)]
     pipe.zrevrangebyscore.assert_not_called()

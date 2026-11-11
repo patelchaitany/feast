@@ -96,16 +96,24 @@ message GetOnlineFeaturesRequest {
     bool include_feature_view_version_metadata = 6;
 
     // Number of events to return per entity for feature views with
-    // online_config mode="sequence". 0 or 1 returns one value per feature.
-    // Above 1, each feature value is a list, with a "<feature>__timestamps"
-    // list next to it.
+    // online_config mode="sequence". 0 or 1 keeps the current behavior: one
+    // value per feature in "results". Above 1, sequence-mode feature views are
+    // returned in GetOnlineFeaturesResponse.sequences instead.
     int32 sequence_length = 7;
 
     // Number of events to skip per entity, for paging through a sequence.
     int32 sequence_offset = 8;
 
-    // "desc" (newest first, the default when empty) or "asc" (oldest first).
-    string sequence_order = 9;
+    // The order of the events in each sequence.
+    SequenceOrder sequence_order = 9;
+}
+
+enum SequenceOrder {
+    // Newest event first. The default.
+    DESC = 0;
+
+    // Oldest event first.
+    ASC = 1;
 }
 
 message GetOnlineFeaturesResponse {
@@ -122,6 +130,37 @@ message GetOnlineFeaturesResponse {
     }
 
     bool status = 3;
+
+    // Only set when GetOnlineFeaturesRequest.sequence_length is above 1.
+    // One EntitySequence per sequence-mode feature view per entity row, in
+    // the order the feature views were requested, then in entity row order.
+    // These feature views are not in "results" or metadata.feature_names.
+    repeated EntitySequence sequences = 4;
+}
+
+// One event in a sequence.
+message SequenceEvent {
+    // Event time in milliseconds since the Unix epoch.
+    int64 event_timestamp_ms = 1;
+
+    // Feature name -> value. Names follow full_feature_names, like "results".
+    map<string, feast.types.Value> features = 2;
+}
+
+// The events of one feature view for one entity row.
+message EntitySequence {
+    // Join key -> value of the entity row this sequence belongs to.
+    map<string, feast.types.Value> entity_key = 1;
+
+    // The page of events, in the requested order.
+    repeated SequenceEvent events = 2;
+
+    // Number of events stored for this entity that are within max_age and
+    // max_length, before paging. Use it with sequence_offset to page.
+    int32 total_count = 3;
+
+    // Name of the feature view the events come from.
+    string feature_view = 4;
 }
 
 message FeatureViewMetadata {

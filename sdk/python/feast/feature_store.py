@@ -4039,9 +4039,10 @@ class FeatureStore:
                 changing them from the format "feature" to "feature_view__feature" (e.g. "daily_transactions"
                 changes to "customer_fv__daily_transactions").
             sequence_length: The number of events to return per entity for feature views with
-                online_config mode="sequence". 0 or 1 returns one value per feature. Above 1, each
-                feature value is a list, with a "<feature>__timestamps" list of event times next to
-                it. Feature views without sequence mode raise an error when this is above 1.
+                online_config mode="sequence". 0 or 1 returns one value per feature. Above 1, those
+                feature views are returned as sequences instead, read with
+                OnlineResponse.to_sequences() or to_sequence_df(). Other feature views always
+                return one value per feature.
             sequence_offset: The number of events to skip per entity, for paging through a sequence.
             sequence_order: "desc" for newest first, "asc" for oldest first.
 
@@ -4143,9 +4144,10 @@ class FeatureStore:
                 changing them from the format "feature" to "feature_view__feature" (e.g. "daily_transactions"
                 changes to "customer_fv__daily_transactions").
             sequence_length: The number of events to return per entity for feature views with
-                online_config mode="sequence". 0 or 1 returns one value per feature. Above 1, each
-                feature value is a list, with a "<feature>__timestamps" list of event times next to
-                it. Feature views without sequence mode raise an error when this is above 1.
+                online_config mode="sequence". 0 or 1 returns one value per feature. Above 1, those
+                feature views are returned as sequences instead, read with
+                OnlineResponse.to_sequences() or to_sequence_df(). Other feature views always
+                return one value per feature.
             sequence_offset: The number of events to skip per entity, for paging through a sequence.
             sequence_order: "desc" for newest first, "asc" for oldest first.
 

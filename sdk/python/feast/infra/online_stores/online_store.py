@@ -16,13 +16,24 @@ import logging
 import time as _time_mod
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from feast import Entity, utils
 from feast.batch_feature_view import BatchFeatureView
-from feast.errors import SequenceReadNotSupported, VersionedOnlineReadNotSupported
+from feast.errors import VersionedOnlineReadNotSupported
 from feast.feature_service import FeatureService
 from feast.feature_view import FeatureView
 from feast.filter_models import ComparisonFilter, CompoundFilter
@@ -39,6 +50,16 @@ from feast.stream_feature_view import StreamFeatureView
 from feast.value_type import ValueType
 
 logger = logging.getLogger(__name__)
+
+
+class SequenceRead(NamedTuple):
+    """One entity's page of events, as returned by online_read_sequence."""
+
+    events: List[Tuple[datetime, Dict[str, ValueProto]]]
+    """(event timestamp, feature values) tuples, in the requested order."""
+
+    total_count: int
+    """Events stored for the entity within max_age and max_length, before paging."""
 
 
 class OnlineStore(ABC):
@@ -164,7 +185,7 @@ class OnlineStore(ABC):
         limit: int = 10,
         offset: int = 0,
         order: str = "desc",
-    ) -> List[List[Tuple[datetime, Dict[str, ValueProto]]]]:
+    ) -> List[SequenceRead]:
         """
         Reads a page of appended events for each entity key, ordered by event time.
 
@@ -180,8 +201,9 @@ class OnlineStore(ABC):
             order: "desc" for newest first, "asc" for oldest first.
 
         Returns:
-            A list of the same length as entity_keys. Each item is a list of
-            (event timestamp, feature values) tuples, empty if there are no events.
+            A list of the same length as entity_keys. Each item is a SequenceRead
+            with the page of (event timestamp, feature values) tuples, empty if
+            there are no events, and the total number of stored events.
         """
         raise NotImplementedError(
             f"Online store {self.__class__.__name__} does not support online read sequence"
@@ -196,7 +218,7 @@ class OnlineStore(ABC):
         limit: int = 10,
         offset: int = 0,
         order: str = "desc",
-    ) -> List[List[Tuple[datetime, Dict[str, ValueProto]]]]:
+    ) -> List[SequenceRead]:
         """
         Reads a page of appended events for each entity key asynchronously.
 
@@ -400,11 +422,6 @@ class OnlineStore(ABC):
                 feature_types=feature_types,
             )
 
-        if sequence_length > 1:
-            requested_result_row_names = requested_result_row_names | {
-                name + utils.SEQUENCE_TIMESTAMPS_SUFFIX
-                for name in requested_result_row_names
-            }
         utils._drop_unneeded_columns(
             online_features_response, requested_result_row_names
         )
@@ -566,9 +583,6 @@ class OnlineStore(ABC):
                 sequence_refs.append((table, requested_features))
             else:
                 latest_refs.append((table, requested_features))
-
-        if sequence_length > 1 and latest_refs:
-            raise SequenceReadNotSupported([table.name for table, _ in latest_refs])
         return latest_refs, sequence_refs
 
     def _read_sequence_features_per_fv(
@@ -586,8 +600,9 @@ class OnlineStore(ABC):
     ) -> None:
         """Read sequence-mode feature views with online_read_sequence.
 
-        A sequence_length of 0 or 1 returns one value per feature, read from
-        the event at sequence_offset. Above 1, each value is a list of events.
+        A sequence_length of 0 or 1 adds one value per feature to "results",
+        read from the event at sequence_offset. Above 1, the events go to
+        "sequences" instead, one EntitySequence per entity row.
         """
         for table, requested_features in sequence_refs:
             table_entity_values, idxs, output_len = utils._get_unique_entities(
@@ -602,6 +617,45 @@ class OnlineStore(ABC):
                 offset=sequence_offset,
                 order=sequence_order,
             )
+            self._populate_sequence_response(
+                requested_features,
+                sequences,
+                table_entity_values,
+                idxs,
+                online_features_response,
+                full_feature_names,
+                table,
+                output_len,
+                include_feature_view_version_metadata,
+                sequence_length,
+            )
+
+    @staticmethod
+    def _populate_sequence_response(
+        requested_features: List[str],
+        sequences: List[SequenceRead],
+        unique_entities: Tuple[Dict[str, ValueProto], ...],
+        idxs: Tuple[List[int], ...],
+        online_features_response,
+        full_feature_names: bool,
+        table: FeatureView,
+        output_len: int,
+        include_feature_view_version_metadata: bool,
+        sequence_length: int,
+    ) -> None:
+        if sequence_length > 1:
+            utils._populate_sequences_from_sequence_data(
+                requested_features,
+                sequences,
+                unique_entities,
+                idxs,
+                online_features_response,
+                full_feature_names,
+                table,
+                output_len,
+                include_feature_view_version_metadata,
+            )
+        else:
             utils._populate_response_from_sequence_data(
                 requested_features,
                 sequences,
@@ -611,7 +665,6 @@ class OnlineStore(ABC):
                 table,
                 output_len,
                 include_feature_view_version_metadata,
-                as_lists=sequence_length > 1,
             )
 
     async def _read_sequence_features_per_fv_async(
@@ -645,7 +698,7 @@ class OnlineStore(ABC):
                 offset=sequence_offset,
                 order=sequence_order,
             )
-            return idxs, sequences, output_len
+            return table_entity_values, idxs, sequences, output_len
 
         all_responses = await asyncio.gather(
             *[
@@ -654,19 +707,21 @@ class OnlineStore(ABC):
             ]
         )
 
-        for (idxs, sequences, output_len), (table, requested_features) in zip(
-            all_responses, sequence_refs
-        ):
-            utils._populate_response_from_sequence_data(
+        for (table_entity_values, idxs, sequences, output_len), (
+            table,
+            requested_features,
+        ) in zip(all_responses, sequence_refs):
+            self._populate_sequence_response(
                 requested_features,
                 sequences,
+                table_entity_values,
                 idxs,
                 online_features_response,
                 full_feature_names,
                 table,
                 output_len,
                 include_feature_view_version_metadata,
-                as_lists=sequence_length > 1,
+                sequence_length,
             )
 
     async def read_precomputed_vectors_async(
@@ -837,11 +892,6 @@ class OnlineStore(ABC):
                 feature_types=feature_types,
             )
 
-        if sequence_length > 1:
-            requested_result_row_names = requested_result_row_names | {
-                name + utils.SEQUENCE_TIMESTAMPS_SUFFIX
-                for name in requested_result_row_names
-            }
         utils._drop_unneeded_columns(
             online_features_response, requested_result_row_names
         )

@@ -34,6 +34,25 @@ else:
 
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
+class _SequenceOrder:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _SequenceOrderEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_SequenceOrder.ValueType], builtins.type):  # noqa: F821
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    DESC: _SequenceOrder.ValueType  # 0
+    """Newest event first. The default."""
+    ASC: _SequenceOrder.ValueType  # 1
+    """Oldest event first."""
+
+class SequenceOrder(_SequenceOrder, metaclass=_SequenceOrderEnumTypeWrapper): ...
+
+DESC: SequenceOrder.ValueType  # 0
+"""Newest event first. The default."""
+ASC: SequenceOrder.ValueType  # 1
+"""Oldest event first."""
+global___SequenceOrder = SequenceOrder
+
 class _FieldStatus:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
@@ -276,14 +295,14 @@ class GetOnlineFeaturesRequest(google.protobuf.message.Message):
     """Whether to include feature view version metadata in the response"""
     sequence_length: builtins.int
     """Number of events to return per entity for feature views with
-    online_config mode="sequence". 0 or 1 returns one value per feature.
-    Above 1, each feature value is a list, with a "<feature>__timestamps"
-    list next to it.
+    online_config mode="sequence". 0 or 1 keeps the current behavior: one
+    value per feature in "results". Above 1, sequence-mode feature views are
+    returned in GetOnlineFeaturesResponse.sequences instead.
     """
     sequence_offset: builtins.int
     """Number of events to skip per entity, for paging through a sequence."""
-    sequence_order: builtins.str
-    """"desc" (newest first, the default when empty) or "asc" (oldest first)."""
+    sequence_order: global___SequenceOrder.ValueType
+    """The order of the events in each sequence."""
     def __init__(
         self,
         *,
@@ -295,7 +314,7 @@ class GetOnlineFeaturesRequest(google.protobuf.message.Message):
         include_feature_view_version_metadata: builtins.bool = ...,
         sequence_length: builtins.int = ...,
         sequence_offset: builtins.int = ...,
-        sequence_order: builtins.str = ...,
+        sequence_order: global___SequenceOrder.ValueType = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["feature_service", b"feature_service", "features", b"features", "kind", b"kind"]) -> builtins.bool: ...
     def ClearField(self, field_name: typing_extensions.Literal["entities", b"entities", "feature_service", b"feature_service", "features", b"features", "full_feature_names", b"full_feature_names", "include_feature_view_version_metadata", b"include_feature_view_version_metadata", "kind", b"kind", "request_context", b"request_context", "sequence_length", b"sequence_length", "sequence_offset", b"sequence_offset", "sequence_order", b"sequence_order"]) -> None: ...
@@ -330,6 +349,7 @@ class GetOnlineFeaturesResponse(google.protobuf.message.Message):
     METADATA_FIELD_NUMBER: builtins.int
     RESULTS_FIELD_NUMBER: builtins.int
     STATUS_FIELD_NUMBER: builtins.int
+    SEQUENCES_FIELD_NUMBER: builtins.int
     @property
     def metadata(self) -> global___GetOnlineFeaturesResponseMetadata: ...
     @property
@@ -338,17 +358,114 @@ class GetOnlineFeaturesResponse(google.protobuf.message.Message):
         We also preserve the same order of features here as in metadata.feature_names
         """
     status: builtins.bool
+    @property
+    def sequences(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___EntitySequence]:
+        """Only set when GetOnlineFeaturesRequest.sequence_length is above 1.
+        One EntitySequence per sequence-mode feature view per entity row, in
+        the order the feature views were requested, then in entity row order.
+        These feature views are not in "results" or metadata.feature_names.
+        """
     def __init__(
         self,
         *,
         metadata: global___GetOnlineFeaturesResponseMetadata | None = ...,
         results: collections.abc.Iterable[global___GetOnlineFeaturesResponse.FeatureVector] | None = ...,
         status: builtins.bool = ...,
+        sequences: collections.abc.Iterable[global___EntitySequence] | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["metadata", b"metadata"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["metadata", b"metadata", "results", b"results", "status", b"status"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["metadata", b"metadata", "results", b"results", "sequences", b"sequences", "status", b"status"]) -> None: ...
 
 global___GetOnlineFeaturesResponse = GetOnlineFeaturesResponse
+
+class SequenceEvent(google.protobuf.message.Message):
+    """One event in a sequence."""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    class FeaturesEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        @property
+        def value(self) -> feast.types.Value_pb2.Value: ...
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: feast.types.Value_pb2.Value | None = ...,
+        ) -> None: ...
+        def HasField(self, field_name: typing_extensions.Literal["value", b"value"]) -> builtins.bool: ...
+        def ClearField(self, field_name: typing_extensions.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+    EVENT_TIMESTAMP_MS_FIELD_NUMBER: builtins.int
+    FEATURES_FIELD_NUMBER: builtins.int
+    event_timestamp_ms: builtins.int
+    """Event time in milliseconds since the Unix epoch."""
+    @property
+    def features(self) -> google.protobuf.internal.containers.MessageMap[builtins.str, feast.types.Value_pb2.Value]:
+        """Feature name -> value. Names follow full_feature_names, like "results"."""
+    def __init__(
+        self,
+        *,
+        event_timestamp_ms: builtins.int = ...,
+        features: collections.abc.Mapping[builtins.str, feast.types.Value_pb2.Value] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["event_timestamp_ms", b"event_timestamp_ms", "features", b"features"]) -> None: ...
+
+global___SequenceEvent = SequenceEvent
+
+class EntitySequence(google.protobuf.message.Message):
+    """The events of one feature view for one entity row."""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    class EntityKeyEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        @property
+        def value(self) -> feast.types.Value_pb2.Value: ...
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: feast.types.Value_pb2.Value | None = ...,
+        ) -> None: ...
+        def HasField(self, field_name: typing_extensions.Literal["value", b"value"]) -> builtins.bool: ...
+        def ClearField(self, field_name: typing_extensions.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+    ENTITY_KEY_FIELD_NUMBER: builtins.int
+    EVENTS_FIELD_NUMBER: builtins.int
+    TOTAL_COUNT_FIELD_NUMBER: builtins.int
+    FEATURE_VIEW_FIELD_NUMBER: builtins.int
+    @property
+    def entity_key(self) -> google.protobuf.internal.containers.MessageMap[builtins.str, feast.types.Value_pb2.Value]:
+        """Join key -> value of the entity row this sequence belongs to."""
+    @property
+    def events(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___SequenceEvent]:
+        """The page of events, in the requested order."""
+    total_count: builtins.int
+    """Number of events stored for this entity that are within max_age and
+    max_length, before paging. Use it with sequence_offset to page.
+    """
+    feature_view: builtins.str
+    """Name of the feature view the events come from."""
+    def __init__(
+        self,
+        *,
+        entity_key: collections.abc.Mapping[builtins.str, feast.types.Value_pb2.Value] | None = ...,
+        events: collections.abc.Iterable[global___SequenceEvent] | None = ...,
+        total_count: builtins.int = ...,
+        feature_view: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["entity_key", b"entity_key", "events", b"events", "feature_view", b"feature_view", "total_count", b"total_count"]) -> None: ...
+
+global___EntitySequence = EntitySequence
 
 class FeatureViewMetadata(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor

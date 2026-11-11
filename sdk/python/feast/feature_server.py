@@ -142,8 +142,8 @@ class GetOnlineFeaturesRequest(BaseModel):
         ge=0,
         description=(
             "Events to return per entity for feature views with online_config "
-            "mode='sequence'. 0 or 1 returns one value per feature. Above 1, each "
-            "value is a list, with a '<feature>__timestamps' list next to it."
+            "mode='sequence'. 0 or 1 returns one value per feature in 'results'. "
+            "Above 1, those feature views are returned in 'sequences' instead."
         ),
     )
     sequence_offset: int = Field(
@@ -220,9 +220,22 @@ class OnlineFeaturesMetadataResponse(BaseModel):
         return v
 
 
+class SequenceEventResponse(BaseModel):
+    event_timestamp_ms: int
+    features: Dict[str, Any] = {}
+
+
+class EntitySequenceResponse(BaseModel):
+    feature_view: str = ""
+    entity_key: Dict[str, Any] = {}
+    events: List[SequenceEventResponse] = []
+    total_count: int = 0
+
+
 class OnlineFeaturesResponse(BaseModel):
     metadata: Optional[OnlineFeaturesMetadataResponse] = None
     results: List[FeatureVectorResponse] = []
+    sequences: Optional[List[EntitySequenceResponse]] = None
     status: Optional[bool] = None
 
 
