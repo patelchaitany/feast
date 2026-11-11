@@ -12,6 +12,7 @@ from feast.infra.registry.base_registry import BaseRegistry
 from feast.infra.registry.registry import FEAST_OBJECT_TYPES, FeastObjectType
 from feast.permissions.permission import Permission
 from feast.project import Project
+from feast.prompt import Prompt
 from feast.protos.feast.core.DataSource_pb2 import DataSource as DataSourceProto
 from feast.protos.feast.core.Entity_pb2 import Entity as EntityProto
 from feast.protos.feast.core.FeatureService_pb2 import (
@@ -374,6 +375,9 @@ def apply_diff_to_registry(
                     project,
                     commit=False,
                 )
+            elif feast_object_diff.feast_object_type == FeastObjectType.PROMPT:
+                prompt_obj = cast(Prompt, feast_object_diff.current_feast_object)
+                registry.delete_prompt(prompt_obj.name, project, commit=False)
 
         if feast_object_diff.transition_type in [
             TransitionType.CREATE,
@@ -417,6 +421,12 @@ def apply_diff_to_registry(
             elif feast_object_diff.feast_object_type == FeastObjectType.PERMISSION:
                 registry.apply_permission(
                     cast(Permission, feast_object_diff.new_feast_object),
+                    project,
+                    commit=False,
+                )
+            elif feast_object_diff.feast_object_type == FeastObjectType.PROMPT:
+                registry.apply_prompt(
+                    cast(Prompt, feast_object_diff.new_feast_object),
                     project,
                     commit=False,
                 )

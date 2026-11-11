@@ -44,6 +44,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.logger import logger
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, Field, field_validator
 
 import feast
@@ -127,6 +128,11 @@ class GetOnlineFeaturesRequest(BaseModel):
     features: List[str] = []
     full_feature_names: bool = False
     include_feature_view_version_metadata: bool = False
+
+
+class RenderPromptRequest(BaseModel):
+    prompt: str
+    entities: Dict[str, List[Any]]
 
 
 class GetOnlineDocumentsRequest(BaseModel):
@@ -996,6 +1002,29 @@ def get_app(
             df=df,
             allow_registry_cache=allow_registry_cache,
             transform_on_write=request.transform_on_write,
+        )
+
+    async def _get_prompt(name: str) -> "feast.Prompt":
+        """The prompt, once the caller may read every feature it renders."""
+        prompt = await run_in_threadpool(store.get_prompt, name, allow_cache=True)
+        await _get_features(
+            GetOnlineFeaturesRequest(entities={}, features=prompt.features), store
+        )
+        return prompt
+
+    @app.get("/prompts/{name}", dependencies=[Depends(inject_user_details)])
+    async def get_prompt(name: str) -> JSONResponse:
+        prompt = await _get_prompt(name)
+        return JSONResponse(content=MessageToDict(prompt.to_proto()))
+
+    @app.post("/render-prompt", dependencies=[Depends(inject_user_details)])
+    async def render_prompt(request: RenderPromptRequest) -> JSONResponse:
+        prompt = await _get_prompt(request.prompt)
+        rendered = await run_in_threadpool(
+            store.render_prompt, prompt, request.entities
+        )
+        return JSONResponse(
+            content={"prompts": [rendering.to_dict() for rendering in rendered]}
         )
 
     @app.get("/health")

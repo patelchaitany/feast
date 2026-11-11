@@ -120,6 +120,15 @@ class FeatureServiceNotFoundException(FeastObjectNotFoundException):
             super().__init__(f"Feature service {name} does not exist")
 
 
+class PromptNotFoundException(FeastObjectNotFoundException):
+    def __init__(self, name, project=None, version=None):
+        prompt = f"Version {version} of prompt {name}" if version else f"Prompt {name}"
+        if project:
+            super().__init__(f"{prompt} does not exist in project {project}")
+        else:
+            super().__init__(f"{prompt} does not exist")
+
+
 class FeatureViewNotFoundException(FeastObjectNotFoundException):
     def __init__(self, name, project=None):
         if project:
