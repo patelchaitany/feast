@@ -87,6 +87,8 @@ When you run `feast materialize` or `feast materialize-incremental`, a sequence-
 
 Materializing sequence-mode feature views works with the local, Ray, Spark and Flink compute engines, and needs an online store that supports append writes (currently Redis). Other combinations fail before any data is read.
 
+`store.push()` and `write_to_online_store()` also append for sequence-mode feature views, so each pushed event is kept instead of overwriting the previous one, and the same `max_age` and `max_length` limits apply after every write. On Redis, the append and the trim run in one `MULTI`/`EXEC` transaction, except with `redis_type: redis_cluster`. With `PushMode.ONLINE_AND_OFFLINE`, the offline store gets the same events. Stream feature views take `online_config` too: with the Spark Kafka processor, every event in a micro-batch is appended, not only the newest one per entity.
+
 To read the last N events per entity, pass `sequence_length` to `get_online_features`. Sequence-mode feature views are then returned as sequences instead of one value per feature: use `to_sequences()` for a dict, or `to_sequence_df()` for a dataframe with one row per event. `sequence_offset` skips events for paging, and `sequence_order` is `"desc"` (newest first, the default) or `"asc"`. Other feature views in the same request still return one value per feature through `to_dict()` and `to_df()`. Without `sequence_length`, a sequence-mode feature view returns its newest event as a single value. The [Python feature server](../../reference/feature-servers/python-feature-server.md) accepts the same fields.
 
 ```python
