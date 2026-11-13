@@ -1215,6 +1215,28 @@ def test_online_append_async_uses_async_client(
     async_pipe.execute.assert_awaited_once()
 
 
+def test_online_append_is_atomic_except_on_redis_cluster(
+    redis_online_store: RedisOnlineStore, feature_view
+):
+    """Append and trim run in one MULTI/EXEC, but not on Redis Cluster."""
+    feature_view.online_config = OnlineConfig(
+        mode="sequence", max_length=10, write_mode="append"
+    )
+    data = _single_entity_batch([(datetime(2026, 1, 1, tzinfo=timezone.utc), 1)])
+    cluster_config = _dedup_config()
+    cluster_config.online_store.redis_type = RedisType.redis_cluster
+    client, _ = _append_client_and_pipe()
+
+    with patch.object(redis_online_store, "_get_client", return_value=client):
+        redis_online_store.online_append(_dedup_config(), feature_view, data)
+        redis_online_store.online_append(cluster_config, feature_view, data)
+
+    assert [call.kwargs for call in client.pipeline.call_args_list] == [
+        {"transaction": True},
+        {"transaction": False},
+    ]
+
+
 def test_online_read_sequence_reads_what_online_append_wrote(
     redis_online_store: RedisOnlineStore, feature_view
 ):

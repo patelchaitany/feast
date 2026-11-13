@@ -9,6 +9,7 @@ from feast.data_source import KafkaSource, PushSource
 from feast.entity import Entity
 from feast.field import Field
 from feast.infra.offline_stores.file_source import FileSource
+from feast.online_config import OnlineConfig
 from feast.protos.feast.core.StreamFeatureView_pb2 import (
     StreamFeatureView as StreamFeatureViewProto,
 )
@@ -239,6 +240,24 @@ def test_stream_feature_view_proto_type():
         udf=lambda x: x,
     )
     assert sfv.proto_class is StreamFeatureViewProto
+
+
+def test_stream_feature_view_keeps_online_config():
+    stream_source = KafkaSource(
+        name="kafka",
+        timestamp_field="event_timestamp",
+        kafka_bootstrap_servers="",
+        message_format=AvroFormat(""),
+        topic="topic",
+        batch_source=FileSource(path="some path"),
+    )
+    online_config = OnlineConfig(mode="sequence", max_length=10, write_mode="append")
+    sfv = StreamFeatureView(
+        name="events", entities=[], source=stream_source, online_config=online_config
+    )
+
+    assert StreamFeatureView.from_proto(sfv.to_proto()).online_config == online_config
+    assert copy.copy(sfv).online_config == online_config
 
 
 def test_stream_feature_view_copy():

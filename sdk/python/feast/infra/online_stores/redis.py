@@ -772,7 +772,10 @@ class RedisOnlineStore(OnlineStore):
           adds nothing, so re-materializing a time range doesn't add duplicates.
         - Score: the event time from _epoch_micros.
         - Limits: after each ZADD, drop events older than max_age, then keep the
-          newest max_length. Not atomic: readers should read at most max_length.
+          newest max_length. The ZADD and the trims run in one MULTI/EXEC, so
+          readers never see more than max_length events. Redis Cluster can't run
+          a MULTI across hash slots, so there they run in a plain pipeline and
+          readers should read at most max_length.
         - TTL: only key_ttl_seconds, the same as the hash keys.
         """
         online_store_config = config.online_store
@@ -781,7 +784,9 @@ class RedisOnlineStore(OnlineStore):
         client = self._get_client(online_store_config)
         events_by_key = self._group_append_events(config, table, data)
         max_length, cutoff = self._append_limits(table)
-        with client.pipeline(transaction=False) as pipe:
+        with client.pipeline(
+            transaction=self._append_is_atomic(online_store_config)
+        ) as pipe:
             for redis_key_bin, events in events_by_key.items():
                 pipe.zadd(redis_key_bin, events)
                 if cutoff is not None:
@@ -813,7 +818,9 @@ class RedisOnlineStore(OnlineStore):
         client = await self._get_client_async(online_store_config)
         events_by_key = self._group_append_events(config, table, data)
         max_length, cutoff = self._append_limits(table)
-        async with client.pipeline(transaction=False) as pipe:
+        async with client.pipeline(
+            transaction=self._append_is_atomic(online_store_config)
+        ) as pipe:
             for redis_key_bin, events in events_by_key.items():
                 pipe.zadd(redis_key_bin, events)
                 if cutoff is not None:
@@ -828,6 +835,12 @@ class RedisOnlineStore(OnlineStore):
 
         if progress:
             progress(len(data))
+
+    @staticmethod
+    def _append_is_atomic(online_store_config: RedisOnlineStoreConfig) -> bool:
+        """Run append and trim in one MULTI/EXEC, except on Redis Cluster, where
+        a transaction can't span the hash slots of a batch's keys."""
+        return online_store_config.redis_type != RedisType.redis_cluster
 
     def _group_append_events(
         self,

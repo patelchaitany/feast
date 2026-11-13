@@ -101,6 +101,7 @@ class StreamFeatureViewSpec(google.protobuf.message.Message):
     VERSION_FIELD_NUMBER: builtins.int
     ORG_FIELD_NUMBER: builtins.int
     DISABLED_FIELD_NUMBER: builtins.int
+    ONLINE_CONFIG_FIELD_NUMBER: builtins.int
     name: builtins.str
     """Name of the feature view. Must be unique. Not updated."""
     project: builtins.str
@@ -167,6 +168,9 @@ class StreamFeatureViewSpec(google.protobuf.message.Message):
     When true, the feature view will not serve online features or be materialized.
     Defaults to false (enabled) for backward compatibility.
     """
+    @property
+    def online_config(self) -> feast.core.FeatureView_pb2.OnlineConfig:
+        """Online retention and write semantics. Unset means latest-value behavior."""
     def __init__(
         self,
         *,
@@ -193,8 +197,9 @@ class StreamFeatureViewSpec(google.protobuf.message.Message):
         version: builtins.str = ...,
         org: builtins.str = ...,
         disabled: builtins.bool = ...,
+        online_config: feast.core.FeatureView_pb2.OnlineConfig | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["batch_source", b"batch_source", "feature_transformation", b"feature_transformation", "stream_source", b"stream_source", "tiling_hop_size", b"tiling_hop_size", "ttl", b"ttl", "user_defined_function", b"user_defined_function"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["aggregations", b"aggregations", "batch_source", b"batch_source", "description", b"description", "disabled", b"disabled", "enable_tiling", b"enable_tiling", "enable_validation", b"enable_validation", "entities", b"entities", "entity_columns", b"entity_columns", "feature_transformation", b"feature_transformation", "features", b"features", "mode", b"mode", "name", b"name", "online", b"online", "org", b"org", "owner", b"owner", "project", b"project", "stream_source", b"stream_source", "tags", b"tags", "tiling_hop_size", b"tiling_hop_size", "timestamp_field", b"timestamp_field", "ttl", b"ttl", "user_defined_function", b"user_defined_function", "version", b"version"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["batch_source", b"batch_source", "feature_transformation", b"feature_transformation", "online_config", b"online_config", "stream_source", b"stream_source", "tiling_hop_size", b"tiling_hop_size", "ttl", b"ttl", "user_defined_function", b"user_defined_function"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["aggregations", b"aggregations", "batch_source", b"batch_source", "description", b"description", "disabled", b"disabled", "enable_tiling", b"enable_tiling", "enable_validation", b"enable_validation", "entities", b"entities", "entity_columns", b"entity_columns", "feature_transformation", b"feature_transformation", "features", b"features", "mode", b"mode", "name", b"name", "online", b"online", "online_config", b"online_config", "org", b"org", "owner", b"owner", "project", b"project", "stream_source", b"stream_source", "tags", b"tags", "tiling_hop_size", b"tiling_hop_size", "timestamp_field", b"timestamp_field", "ttl", b"ttl", "user_defined_function", b"user_defined_function", "version", b"version"]) -> None: ...
 
 global___StreamFeatureViewSpec = StreamFeatureViewSpec

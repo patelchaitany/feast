@@ -17,6 +17,7 @@ from feast.data_source import DataSource
 from feast.entity import Entity
 from feast.feature_view import FeatureView
 from feast.field import Field
+from feast.online_config import OnlineConfig
 from feast.proto_utils import mode_to_string, serialize_data_source
 from feast.protos.feast.core.DataSource_pb2 import DataSource as DataSourceProto
 from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
@@ -75,6 +76,8 @@ class StreamFeatureView(FeatureView):
                 Note, feature_transformation has precedence over udf and udf_string.
         stream_engine: Optional dictionary containing stream engine specific configurations.
                 Note, it will override the repo-level default stream engine config defined in the yaml file.
+        online_config: Optional online retention and write semantics. With mode="sequence",
+                pushed and streamed events are appended instead of overwriting the latest value.
     """
 
     name: str
@@ -130,6 +133,7 @@ class StreamFeatureView(FeatureView):
         tiling_hop_size: Optional[timedelta] = None,
         enable_validation: bool = False,
         version: str = "latest",
+        online_config: Optional[OnlineConfig] = None,
     ):
         if not flags_helper.is_test():
             warnings.warn(
@@ -196,6 +200,7 @@ class StreamFeatureView(FeatureView):
             sink_source=sink_source,
             enable_validation=enable_validation,
             version=version,
+            online_config=online_config,
         )
 
     def get_feature_transformation(self) -> Optional[Transformation]:
@@ -330,6 +335,11 @@ class StreamFeatureView(FeatureView):
             enable_validation=self.enable_validation,
             version=self.version,
             disabled=not self.enabled,
+            online_config=(
+                self.online_config.to_proto()
+                if self.online_config is not None
+                else None
+            ),
         )
 
         return StreamFeatureViewProto(spec=spec, meta=meta)
@@ -394,6 +404,11 @@ class StreamFeatureView(FeatureView):
             ),
             enable_validation=sfv_proto.spec.enable_validation,
             version=sfv_proto.spec.version or "latest",
+            online_config=(
+                OnlineConfig.from_proto(sfv_proto.spec.online_config)
+                if sfv_proto.spec.HasField("online_config")
+                else None
+            ),
         )
 
         if batch_source:
@@ -478,6 +493,7 @@ class StreamFeatureView(FeatureView):
             tiling_hop_size=self.tiling_hop_size,
             enable_validation=self.enable_validation,
             version=self.version,
+            online_config=self.online_config,
         )
         fv.enabled = self.enabled
         fv.state = self.state
@@ -508,6 +524,7 @@ def stream_feature_view(
     timestamp_field: Optional[str] = "",
     enable_validation: bool = False,
     version: str = "latest",
+    online_config: Optional[OnlineConfig] = None,
 ):
     """
     Creates an StreamFeatureView object with the given user function as udf.
@@ -542,6 +559,7 @@ def stream_feature_view(
             timestamp_field=timestamp_field,
             enable_validation=enable_validation,
             version=version,
+            online_config=online_config,
         )
         functools.update_wrapper(wrapper=stream_feature_view_obj, wrapped=user_function)
         return stream_feature_view_obj
