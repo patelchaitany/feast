@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pandas as pd
 
 from feast import Entity, FeatureStore, FeatureView, Field, OnlineConfig, ValueType
+from feast.data_source import PushMode, PushSource
 from feast.feature_server_utils import convert_response_to_dict
 from feast.infra.offline_stores.file_source import FileSource
 from feast.infra.online_stores.online_store import SequenceRead
@@ -14,6 +15,7 @@ from feast.infra.online_stores.sqlite import SqliteOnlineStore, SqliteOnlineStor
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.repo_config import RepoConfig
 from feast.types import Float32, Int64
+from feast.utils import make_tzaware
 
 
 def _feature_store(tmp_path: Path) -> FeatureStore:
@@ -135,6 +137,56 @@ def test_write_to_online_store_routes_by_write_mode(tmp_path: Path) -> None:
         assert [call.args[1].name for call in online_write_batch.call_args_list] == [
             "event_latest"
         ]
+    finally:
+        store.teardown()
+
+
+def test_push_appends_each_event_for_sequence_views(tmp_path: Path) -> None:
+    store = _feature_store(tmp_path)
+    push_source = PushSource(
+        name="event_push",
+        batch_source=FileSource(
+            path="events.parquet", timestamp_field="event_timestamp"
+        ),
+    )
+    entity = Entity(name="event", join_keys=["event_id"], value_type=ValueType.INT64)
+    sequence_view = FeatureView(
+        name="event_sequence",
+        entities=[entity],
+        schema=[
+            Field(name="event_id", dtype=Int64),
+            Field(name="event_value", dtype=Float32),
+        ],
+        source=push_source,
+        online_config=OnlineConfig(mode="sequence", max_length=10, write_mode="append"),
+    )
+    t1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    t2 = t1 + timedelta(minutes=1)
+
+    def event(value: float, ts: datetime) -> pd.DataFrame:
+        return pd.DataFrame(
+            {"event_id": [1], "event_value": [value], "event_timestamp": [ts]}
+        )
+
+    try:
+        store.apply([entity, sequence_view])
+        with (
+            patch.object(SqliteOnlineStore, "online_append") as online_append,
+            patch.object(SqliteOnlineStore, "online_write_batch") as online_write_batch,
+            patch.object(FeatureStore, "write_to_offline_store") as offline_write,
+        ):
+            store.push("event_push", event(1.0, t1))
+            store.push("event_push", event(2.0, t2), to=PushMode.ONLINE_AND_OFFLINE)
+
+        # Each push appends its event; nothing overwrites the first one.
+        appended = [
+            (make_tzaware(ts), values["event_value"].float_val)
+            for call in online_append.call_args_list
+            for _, values, ts, _ in call.args[2]
+        ]
+        assert appended == [(t1, 1.0), (t2, 2.0)]
+        online_write_batch.assert_not_called()
+        offline_write.assert_called_once()
     finally:
         store.teardown()
 

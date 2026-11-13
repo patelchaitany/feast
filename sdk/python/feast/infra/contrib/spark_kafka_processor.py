@@ -139,14 +139,16 @@ class SparkKafkaProcessor(StreamProcessor):
             rows: pd.DataFrame = row.toPandas()
 
             # Extract the latest feature values for each unique entity row (i.e. the join keys).
-            # Also add a 'created' column.
-            rows = (
-                rows.sort_values(
-                    by=[*self.join_keys, self.sfv.timestamp_field], ascending=False
-                )
-                .groupby(self.join_keys)
-                .nth(0)
+            # Sequence-mode views keep the newest max_length rows instead, so every
+            # event in the micro-batch is appended. Also add a 'created' column.
+            rows = rows.sort_values(
+                by=[*self.join_keys, self.sfv.timestamp_field], ascending=False
             )
+            online_config = self.sfv.online_config
+            if online_config is not None and online_config.write_mode == "append":
+                rows = rows.groupby(self.join_keys).head(online_config.max_length)
+            else:
+                rows = rows.groupby(self.join_keys).nth(0)
             rows["created"] = pd.to_datetime("now", utc=True)
 
             # Reset indices to ensure the dataframe has all the required columns.
