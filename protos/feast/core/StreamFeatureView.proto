@@ -113,5 +113,8 @@ message StreamFeatureViewSpec {
     // When true, the feature view will not serve online features or be materialized.
     // Defaults to false (enabled) for backward compatibility.
     bool disabled = 23;
+
+    // Online retention and write semantics. Unset means latest-value behavior.
+    OnlineConfig online_config = 24;
 }
 
