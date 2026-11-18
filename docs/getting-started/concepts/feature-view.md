@@ -87,6 +87,19 @@ When you run `feast materialize` or `feast materialize-incremental`, a sequence-
 
 Materializing sequence-mode feature views works with the local, Ray, Spark and Flink compute engines, and needs an online store that supports append writes (currently Redis). Other combinations fail before any data is read.
 
+To read the last N events per entity, pass `sequence_length` to `get_online_features`. Each feature value is then a list, and a `<feature>__timestamps` list holds the event time of each value. `sequence_offset` skips events for paging, and `sequence_order` is `"desc"` (newest first, the default) or `"asc"`. Without `sequence_length`, a sequence-mode feature view returns its newest event. Feature views without sequence mode raise an error when `sequence_length` is above 1. The [Python feature server](../../reference/feature-servers/python-feature-server.md) accepts the same fields.
+
+```python
+response = store.get_online_features(
+    features=["user_interactions:item_id"],
+    entity_rows=[{"user_id": "u123"}],
+    sequence_length=20,
+).to_dict()
+# {"user_id": ["u123"],
+#  "item_id": [["i9", "i4", ...]],
+#  "item_id__timestamps": [[datetime(...), datetime(...), ...]]}
+```
+
 {% hint style="warning" %}
 Sequence configuration is currently an experimental registry contract. Online stores continue to use their existing latest-value behavior until they explicitly implement sequence append, retrieval, and eviction support.
 {% endhint %}

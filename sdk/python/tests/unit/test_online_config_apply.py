@@ -5,10 +5,13 @@ from typing import Optional
 from unittest.mock import AsyncMock, patch
 
 import pandas as pd
+import pytest
 
 from feast import Entity, FeatureStore, FeatureView, Field, OnlineConfig, ValueType
+from feast.errors import SequenceReadNotSupported
 from feast.infra.offline_stores.file_source import FileSource
 from feast.infra.online_stores.sqlite import SqliteOnlineStore, SqliteOnlineStoreConfig
+from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.repo_config import RepoConfig
 from feast.types import Float32, Int64
 
@@ -132,5 +135,71 @@ def test_write_to_online_store_routes_by_write_mode(tmp_path: Path) -> None:
         assert [call.args[1].name for call in online_write_batch.call_args_list] == [
             "event_latest"
         ]
+    finally:
+        store.teardown()
+
+
+def test_get_online_features_reads_sequences(tmp_path: Path) -> None:
+    store = _feature_store(tmp_path)
+    source = FileSource(path="events.parquet", timestamp_field="event_timestamp")
+    entity = Entity(name="event", join_keys=["event_id"], value_type=ValueType.INT64)
+    schema = [
+        Field(name="event_id", dtype=Int64),
+        Field(name="event_value", dtype=Float32),
+    ]
+    sequence_view = FeatureView(
+        name="event_sequence",
+        entities=[entity],
+        schema=schema,
+        source=source,
+        online_config=OnlineConfig(mode="sequence", max_length=10, write_mode="append"),
+    )
+    latest_view = FeatureView(
+        name="event_latest", entities=[entity], schema=schema, source=source
+    )
+    t1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    t2 = t1 + timedelta(minutes=1)
+    events = [
+        (t2, {"event_value": ValueProto(float_val=2.0)}),
+        (t1, {"event_value": ValueProto(float_val=1.0)}),
+    ]
+
+    def read_sequence(config, table, entity_keys, requested_features, limit, **_):
+        return [
+            events[:limit] if key.entity_values[0].int64_val == 1 else []
+            for key in entity_keys
+        ]
+
+    try:
+        store.apply([entity, sequence_view, latest_view])
+        with patch.object(
+            SqliteOnlineStore, "online_read_sequence", side_effect=read_sequence
+        ) as online_read_sequence:
+            sequences = store.get_online_features(
+                features=["event_sequence:event_value"],
+                entity_rows=[{"event_id": 1}, {"event_id": 2}],
+                sequence_length=2,
+                sequence_order="asc",
+            ).to_dict()
+            latest = store.get_online_features(
+                features=["event_sequence:event_value"],
+                entity_rows=[{"event_id": 1}],
+            ).to_dict()
+
+        assert sequences == {
+            "event_id": [1, 2],
+            "event_value": [[2.0, 1.0], None],
+            "event_value__timestamps": [[t2, t1], None],
+        }
+        assert latest == {"event_id": [1], "event_value": [2.0]}
+        assert online_read_sequence.call_args_list[0].kwargs["order"] == "asc"
+        assert online_read_sequence.call_args_list[1].kwargs["limit"] == 1
+
+        with pytest.raises(SequenceReadNotSupported, match="event_latest"):
+            store.get_online_features(
+                features=["event_latest:event_value"],
+                entity_rows=[{"event_id": 1}],
+                sequence_length=2,
+            )
     finally:
         store.teardown()
