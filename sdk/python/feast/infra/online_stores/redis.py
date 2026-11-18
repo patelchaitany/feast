@@ -41,7 +41,7 @@ from feast.infra.online_stores.helpers import (
     _redis_key_prefix,
     compute_versioned_name,
 )
-from feast.infra.online_stores.online_store import OnlineStore
+from feast.infra.online_stores.online_store import OnlineStore, SequenceRead
 from feast.infra.supported_async_methods import SupportedAsyncMethods
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Map as MapProto
@@ -876,15 +876,15 @@ class RedisOnlineStore(OnlineStore):
         limit: int = 10,
         offset: int = 0,
         order: str = "desc",
-    ) -> List[List[Tuple[datetime, Dict[str, ValueProto]]]]:
+    ) -> List[SequenceRead]:
         """
         Reads events from the sorted sets written by online_append, one
-        ZREVRANGEBYSCORE (desc) or ZRANGEBYSCORE (asc) per entity key, in one
-        pipeline.
+        ZREVRANGEBYSCORE (desc) or ZRANGEBYSCORE (asc) plus one ZCOUNT per
+        entity key, in one pipeline.
 
         - Events older than max_age are skipped, since trimming only runs on write.
         - Reads stop at max_length, since a key can briefly hold more between
-          ZADD and the trim.
+          ZADD and the trim. total_count is capped at max_length too.
         - offset counts from the newest (desc) or oldest (asc) event, so new
           writes shift the pages.
         """
@@ -892,8 +892,6 @@ class RedisOnlineStore(OnlineStore):
         assert isinstance(online_store_config, RedisOnlineStoreConfig)
 
         num, min_score = self._sequence_read_args(table, limit, offset, order)
-        if num <= 0:
-            return [[] for _ in entity_keys]
 
         client = self._get_client(online_store_config)
         with client.pipeline(transaction=False) as pipe:
@@ -908,7 +906,7 @@ class RedisOnlineStore(OnlineStore):
                 )
             results = pipe.execute()
 
-        return self._decode_sequences(results, table, requested_features)
+        return self._decode_sequences(results, table, requested_features, num)
 
     async def online_read_sequence_async(
         self,
@@ -919,14 +917,12 @@ class RedisOnlineStore(OnlineStore):
         limit: int = 10,
         offset: int = 0,
         order: str = "desc",
-    ) -> List[List[Tuple[datetime, Dict[str, ValueProto]]]]:
+    ) -> List[SequenceRead]:
         """Async version of online_read_sequence using the async Redis client."""
         online_store_config = config.online_store
         assert isinstance(online_store_config, RedisOnlineStoreConfig)
 
         num, min_score = self._sequence_read_args(table, limit, offset, order)
-        if num <= 0:
-            return [[] for _ in entity_keys]
 
         client = await self._get_client_async(online_store_config)
         async with client.pipeline(transaction=False) as pipe:
@@ -941,7 +937,7 @@ class RedisOnlineStore(OnlineStore):
                 )
             results = await pipe.execute()
 
-        return self._decode_sequences(results, table, requested_features)
+        return self._decode_sequences(results, table, requested_features, num)
 
     def _sequence_read_args(
         self, table: FeatureView, limit: int, offset: int, order: str
@@ -975,22 +971,34 @@ class RedisOnlineStore(OnlineStore):
         num: int,
         min_score: Union[int, str],
     ) -> None:
-        if order == "desc":
+        """Queue the page read, skipped when the page is past max_length, then
+        the ZCOUNT of events within max_age."""
+        if num > 0 and order == "desc":
             pipe.zrevrangebyscore(redis_key_bin, "+inf", min_score, offset, num)
-        else:
+        elif num > 0:
             pipe.zrangebyscore(redis_key_bin, min_score, "+inf", offset, num)
+        pipe.zcount(redis_key_bin, min_score, "+inf")
 
     @staticmethod
     def _decode_sequences(
-        results: List[List[ByteString]],
+        results: List[Any],
         table: FeatureView,
         requested_features: Optional[List[str]],
-    ) -> List[List[Tuple[datetime, Dict[str, ValueProto]]]]:
-        """Decode members written by _group_append_events into events."""
+        num: int,
+    ) -> List[SequenceRead]:
+        """Decode the pipeline results queued by _queue_sequence_read: per entity
+        key, the members written by _group_append_events (unless num <= 0),
+        then the ZCOUNT."""
         feature_names = requested_features or [f.name for f in table.features]
+        max_length = table.online_config.max_length if table.online_config else None
         epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        per_key = 2 if num > 0 else 1
         sequences = []
-        for members in results:
+        for i in range(0, len(results), per_key):
+            members: List[ByteString] = results[i] if num > 0 else []
+            total_count = int(results[i + per_key - 1])
+            if max_length:
+                total_count = min(total_count, max_length)
             events = []
             for member in members:
                 member = bytes(member)
@@ -1005,7 +1013,7 @@ class RedisOnlineStore(OnlineStore):
                         },
                     )
                 )
-            sequences.append(events)
+            sequences.append(SequenceRead(events, total_count))
         return sequences
 
     def _generate_redis_keys_for_entities(
