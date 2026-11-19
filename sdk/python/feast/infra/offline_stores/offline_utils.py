@@ -19,6 +19,7 @@ from feast.feature_view import FeatureView
 from feast.importer import import_class
 from feast.infra.offline_stores.offline_store import OfflineStore
 from feast.infra.registry.base_registry import BaseRegistry
+from feast.online_config import uses_sequence_mode
 from feast.repo_config import RepoConfig
 from feast.type_map import feast_value_type_to_pa
 from feast.utils import (
@@ -103,6 +104,10 @@ class FeatureViewQueryContext:
         str
     ]  # this attribute is added because partition pruning affects Athena's query performance.
     timestamp_field_type: Optional[str]
+    sequence_length: int = 0
+    """Number of events to return per entity row for sequence-mode feature
+    views; 0 means the feature view is not in sequence mode and a single
+    latest value is returned."""
 
 
 def get_feature_view_query_context(
@@ -111,11 +116,18 @@ def get_feature_view_query_context(
     registry: BaseRegistry,
     project: str,
     entity_df_timestamp_range: Tuple[datetime, datetime],
+    sequence_length: Optional[int] = None,
 ) -> List[FeatureViewQueryContext]:
     """
     Build a query context containing all information required to template a BigQuery and
     Redshift point-in-time SQL query
     """
+    if sequence_length is not None and (
+        isinstance(sequence_length, bool) or not isinstance(sequence_length, int)
+    ):
+        raise ValueError("sequence_length must be an integer.")
+    if sequence_length is not None and sequence_length <= 0:
+        raise ValueError("sequence_length must be a positive integer.")
     (
         feature_views_to_feature_map,
         on_demand_feature_views_to_features,
@@ -152,6 +164,32 @@ def get_feature_view_query_context(
         else:
             ttl_seconds = 0
 
+        # Sequence-mode feature views mirror online serving: the lookback window
+        # is online_config.max_age (which online_read_sequence also enforces),
+        # not the feature view ttl, and the newest events are returned as list
+        # columns.
+        sequence_length_resolved = 0
+        effective_ttl = feature_view.ttl if ttl_seconds else None
+        online_config = feature_view.online_config
+        if uses_sequence_mode(feature_view):
+            assert online_config is not None
+            # OnlineConfig requires max_length in sequence mode. Online reads
+            # never return more than max_length events, so an override above
+            # it is capped the same way.
+            max_length = online_config.max_length
+            assert max_length is not None
+            sequence_length_resolved = (
+                min(sequence_length, max_length)
+                if sequence_length is not None
+                else max_length
+            )
+            effective_ttl = online_config.max_age
+            ttl_seconds = (
+                int(online_config.max_age.total_seconds())
+                if online_config.max_age is not None
+                else 0
+            )
+
         features = [reverse_field_mapping.get(feature, feature) for feature in features]
         timestamp_field = reverse_field_mapping.get(
             feature_view.batch_source.timestamp_field,
@@ -173,9 +211,9 @@ def get_feature_view_query_context(
 
         max_event_timestamp = to_naive_utc(entity_df_timestamp_range[1]).isoformat()
         min_event_timestamp = None
-        if feature_view.ttl:
+        if effective_ttl:
             min_event_timestamp = to_naive_utc(
-                entity_df_timestamp_range[0] - feature_view.ttl
+                entity_df_timestamp_range[0] - effective_ttl
             ).isoformat()
 
         context = FeatureViewQueryContext(
@@ -193,6 +231,7 @@ def get_feature_view_query_context(
             max_event_timestamp=max_event_timestamp,
             date_partition_column=date_partition_column,
             timestamp_field_type=timestamp_field_type or None,
+            sequence_length=sequence_length_resolved,
         )
         query_context.append(context)
 

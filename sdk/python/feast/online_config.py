@@ -26,6 +26,19 @@ def uses_append_write_mode(feature_view: Any) -> bool:
     return online_config is not None and online_config.write_mode == "append"
 
 
+def uses_sequence_mode(feature_view: Any) -> bool:
+    """Return True if this feature view serves event sequences online.
+
+    Feature views with ``online_config mode="sequence"`` store the newest
+    ``max_length`` events per entity and serve them with
+    ``online_read_sequence``. Historical retrieval mirrors that shape by
+    returning the last ``max_length`` events as of each entity row's
+    timestamp as list columns.
+    """
+    online_config = getattr(feature_view, "online_config", None)
+    return online_config is not None and online_config.mode == "sequence"
+
+
 @dataclass
 class OnlineConfig:
     """Online retention and write semantics for a feature view.

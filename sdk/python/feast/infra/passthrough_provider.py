@@ -530,6 +530,7 @@ class PassthroughProvider(Provider):
     ) -> RetrievalJob:
         if kwargs.get("filter_by_created_timestamp"):
             self.offline_store.ensure_filter_by_created_timestamp_supported()
+        self.offline_store.ensure_sequence_retrieval_supported(feature_views)
         job = self.offline_store.get_historical_features(
             config=config,
             feature_views=feature_views,
