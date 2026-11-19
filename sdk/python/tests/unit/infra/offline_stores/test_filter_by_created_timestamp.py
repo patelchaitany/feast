@@ -304,6 +304,7 @@ class TestIbisFilterByCreatedTimestamp:
                     {"driver_id": "driver_id"},
                     ["conv_rate"],
                     None,
+                    None,
                 )
             ],
             event_timestamp_col="event_timestamp",

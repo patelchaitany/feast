@@ -140,6 +140,7 @@ class BigQueryOfflineStoreConfig(FeastConfigBaseModel):
 
 class BigQueryOfflineStore(OfflineStore):
     supports_filter_by_created_timestamp = True
+    supports_sequence_retrieval = True
 
     @staticmethod
     def pull_latest_from_table_or_query(
@@ -278,6 +279,7 @@ class BigQueryOfflineStore(OfflineStore):
         project: str,
         full_feature_names: bool = False,
         filter_by_created_timestamp: bool = False,
+        sequence_length: Optional[int] = None,
         **kwargs: Any,
     ) -> RetrievalJob:
         # TODO: Add entity_df validation in order to fail before interacting with BigQuery
@@ -324,6 +326,7 @@ class BigQueryOfflineStore(OfflineStore):
                 registry,
                 project,
                 entity_df_event_timestamp_range,
+                sequence_length=sequence_length,
             )
             all_entities = offline_utils.gather_all_entities(fv_query_contexts_pre)
             event_timestamp_col = "entity_ts"
@@ -356,6 +359,7 @@ class BigQueryOfflineStore(OfflineStore):
                 registry,
                 project,
                 entity_df_event_timestamp_range,
+                sequence_length=sequence_length,
             )
 
         @contextlib.contextmanager
@@ -1812,9 +1816,13 @@ CREATE TEMP TABLE {{ featureview.name }}__cleaned AS (
     */
     {{ featureview.name }}__latest AS (
     SELECT
+        {% if featureview.sequence_length %}
+        * EXCEPT (row_number)
+        {% else %}
         event_timestamp,
         {% if featureview.created_timestamp_column %}created_timestamp,{% endif %}
         {{featureview.name}}__entity_row_unique_id
+        {% endif %}
     FROM
     (
         SELECT *,
@@ -1828,7 +1836,7 @@ CREATE TEMP TABLE {{ featureview.name }}__cleaned AS (
             USING ({{featureview.name}}__entity_row_unique_id, event_timestamp, created_timestamp)
         {% endif %}
     )
-    WHERE row_number = 1
+    WHERE row_number {% if featureview.sequence_length %}<= {{ featureview.sequence_length }}{% else %}= 1{% endif %}
 )
 
 /*
@@ -1836,6 +1844,25 @@ CREATE TEMP TABLE {{ featureview.name }}__cleaned AS (
  we can join again the data back to the original "base" dataset
 */
 
+    {% if featureview.sequence_length %}
+    /*
+     Sequence mode: one list per feature, newest event first. __latest already
+     holds the newest rows with their feature values, so they are aggregated
+     directly. Nulls are not skipped: that would shift the lists of one row
+     out of line, so a null value fails the query instead (BigQuery arrays
+     cannot hold NULL). Entity rows without events get an empty array.
+    */
+    SELECT
+        {{featureview.name}}__entity_row_unique_id
+        {% for feature in featureview.features %}
+        ,ARRAY_AGG(
+            {% if full_feature_names %}{{ featureview.name }}__{{featureview.field_mapping.get(feature, feature)}}{% else %}{{ featureview.field_mapping.get(feature, feature) | backticks }}{% endif %}
+            ORDER BY event_timestamp DESC{% if featureview.created_timestamp_column %}, created_timestamp DESC{% endif %}
+        ) AS {% if full_feature_names %}{{ featureview.name }}__{{featureview.field_mapping.get(feature, feature)}}{% else %}{{ featureview.field_mapping.get(feature, feature) | backticks }}{% endif %}
+        {% endfor %}
+    FROM {{ featureview.name }}__latest
+    GROUP BY {{featureview.name}}__entity_row_unique_id
+    {% else %}
     SELECT base.*
     FROM {{ featureview.name }}__base as base
     INNER JOIN {{ featureview.name }}__latest
@@ -1846,6 +1873,7 @@ CREATE TEMP TABLE {{ featureview.name }}__cleaned AS (
             ,created_timestamp
         {% endif %}
     )
+    {% endif %}
 );
 
 
@@ -1855,7 +1883,25 @@ CREATE TEMP TABLE {{ featureview.name }}__cleaned AS (
  The entity_dataframe dataset being our source of truth here.
  */
 
-SELECT {{ final_output_feature_names | backticks | join(', ')}}
+{%- set sequence_outputs = namespace(cols=[]) %}
+{%- for fv in featureviews if fv.sequence_length %}
+{%-   for feature in fv.features %}
+{%-     if full_feature_names %}
+{%-       set sequence_outputs.cols = sequence_outputs.cols + [fv.name ~ '__' ~ fv.field_mapping.get(feature, feature)] %}
+{%-     else %}
+{%-       set sequence_outputs.cols = sequence_outputs.cols + [fv.field_mapping.get(feature, feature)] %}
+{%-     endif %}
+{%-   endfor %}
+{%- endfor %}
+SELECT
+{%- for col in final_output_feature_names %}
+    {%- if col in sequence_outputs.cols %}
+    COALESCE({{ col | backticks }}, []) AS {{ col | backticks }}
+    {%- else %}
+    {{ col | backticks }}
+    {%- endif %}
+{%- if not loop.last %},{% endif %}
+{% endfor %}
 FROM entity_dataframe
 {% for featureview in featureviews %}
 LEFT JOIN (

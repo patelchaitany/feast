@@ -108,6 +108,18 @@ response.to_sequence_df()
 # 1  user_interactions    u123 2026-01-02 09:58:00+00:00             i4
 ```
 
+`get_historical_features` returns the same shape for training. For each entity row, a sequence-mode feature view returns the newest `max_length` events at or before the row's `event_timestamp`, and within `max_age` of it, as one list column per feature, newest first. Pass `sequence_length` to return fewer events; values above `max_length` are capped, as online reads are. A missing value stays in its list as a null, so the lists of one row line up event by event, and entity rows without events get empty lists. Feature views without sequence mode still return one value per feature. Historical retrieval of sequence-mode feature views works with the DuckDB and BigQuery offline stores; other offline stores raise an error. On BigQuery, a null value in a sequence fails the query, because BigQuery arrays cannot hold nulls.
+
+```python
+training_df = store.get_historical_features(
+    entity_df=spine_df,  # columns: user_id, event_timestamp
+    features=["user_interactions:item_id"],
+    sequence_length=20,
+).to_df()
+# user_id       event_timestamp          item_id
+# u123          2026-01-02 10:00:00      ["i9", "i4", ...]
+```
+
 {% hint style="warning" %}
 Sequence configuration is currently an experimental registry contract. Online stores continue to use their existing latest-value behavior until they explicitly implement sequence append, retrieval, and eviction support.
 {% endhint %}

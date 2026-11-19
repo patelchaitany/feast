@@ -217,6 +217,8 @@ store.get_historical_features(entity_df, features)
   └── Returns RetrievalJob → .to_df() / .to_arrow()
 ```
 
+Feature views with `online_config.mode="sequence"` return the newest `max_length` events (or the `sequence_length` override, capped at `max_length`) per entity row as list columns, newest first, with `online_config.max_age` as the lookback instead of `ttl`. The ibis path (`ibis.point_in_time_join`, used by DuckDB) keeps the newest N rows in `deduplicate(keep=N)` and aggregates with `collect(order_by=..., include_null=True)`. SQL stores read `FeatureViewQueryContext.sequence_length`; only the BigQuery template uses it. Stores opt in with `OfflineStore.supports_sequence_retrieval`; `PassthroughProvider` calls `ensure_sequence_retrieval_supported` and the others raise `NotImplementedError`.
+
 ---
 
 ## Feature Servers
