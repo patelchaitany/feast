@@ -467,6 +467,23 @@ class OfflineStore(ABC):
                 f"filter_by_created_timestamp is not supported by {type(self).__name__}"
             )
 
+    supports_sequence_retrieval: bool = False
+    """Whether get_historical_features returns list columns for feature views
+    with online_config mode="sequence"."""
+
+    def ensure_sequence_retrieval_supported(self, feature_views: List[Any]) -> None:
+        """Raises NotImplementedError if any feature view uses sequence mode and
+        this store would return single values for it instead of sequences."""
+        from feast.online_config import uses_sequence_mode
+
+        names = [fv.name for fv in feature_views if uses_sequence_mode(fv)]
+        if names and not self.supports_sequence_retrieval:
+            raise NotImplementedError(
+                f"{type(self).__name__} does not support historical retrieval for "
+                f"feature views with online_config mode='sequence': {', '.join(names)}. "
+                "Use the DuckDB or BigQuery offline store."
+            )
+
     @staticmethod
     def pull_latest_from_table_or_query(
         config: RepoConfig,
@@ -533,6 +550,9 @@ class OfflineStore(ABC):
                 ``created_timestamp_column`` of the batch source) is at or before the entity row's event
                 timestamp are considered. Only passed through when a store declares
                 ``supports_filter_by_created_timestamp``.
+            sequence_length: The number of events to return per entity row for feature views with
+                ``online_config mode="sequence"``. Defaults to each feature view's
+                ``online_config.max_length``. Only passed through when set by the caller.
 
         Returns:
             A RetrievalJob that can be executed to get the features.

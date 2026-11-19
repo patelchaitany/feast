@@ -32,6 +32,7 @@ class HybridOfflineStoreConfig(FeastConfigBaseModel):
 
 class HybridOfflineStore(OfflineStore):
     supports_filter_by_created_timestamp = True
+    supports_sequence_retrieval = True
 
     _instance: Optional["HybridOfflineStore"] = None
     _initialized: bool
@@ -126,6 +127,7 @@ class HybridOfflineStore(OfflineStore):
         # The hybrid store only supports the flag if the store it delegates to does.
         if kwargs.get("filter_by_created_timestamp"):
             store.ensure_filter_by_created_timestamp_supported()
+        store.ensure_sequence_retrieval_supported(feature_views)
         return store.get_historical_features(
             config,
             feature_views,

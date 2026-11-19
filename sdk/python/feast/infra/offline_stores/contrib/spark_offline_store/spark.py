@@ -99,8 +99,8 @@ class SparkOfflineStoreConfig(FeastConfigBaseModel):
 
 @dataclass(frozen=True)
 class SparkFeatureViewQueryContext(offline_utils.FeatureViewQueryContext):
-    min_date_partition: Optional[str]
-    max_date_partition: Optional[str]
+    min_date_partition: Optional[str] = None
+    max_date_partition: Optional[str] = None
 
 
 class SparkOfflineStore(OfflineStore):
