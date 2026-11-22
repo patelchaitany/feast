@@ -63,7 +63,7 @@ class RayFeatureBuilder(FeatureBuilder):
             config=self.config,
             start_time=start_time,
             end_time=end_time,
-            pull_all=self._sequence_max_length(view) is not None,
+            pull_all=self._is_sequence_materialization(view),
         )
 
         self.nodes.append(node)

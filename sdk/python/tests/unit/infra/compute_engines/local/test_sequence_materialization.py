@@ -186,6 +186,21 @@ def test_sequence_view_keeps_newest_max_length_events(events_path, tmp_path):
     assert _movies_by_user(online_store.appended) == {1: [20, 30], 2: [40]}
 
 
+def test_sequence_view_without_max_length_appends_every_event(events_path, tmp_path):
+    """A sequence with no max_length is unlimited, so every event is appended."""
+    online_config = OnlineConfig(mode="sequence", write_mode="append")
+    online_store = RecordingOnlineStore()
+
+    _materialize(
+        _feature_view(events_path, online_config),
+        online_store,
+        tmp_path,
+        pull_latest_features=True,
+    )
+
+    assert _movies_by_user(online_store.appended) == {1: [10, 20, 30], 2: [40]}
+
+
 def test_latest_view_writes_latest_event_per_entity(events_path, tmp_path):
     """Views without sequence mode keep writing one row per entity."""
     online_store = RecordingOnlineStore()

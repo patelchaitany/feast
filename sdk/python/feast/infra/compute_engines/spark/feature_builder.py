@@ -45,7 +45,7 @@ class SparkFeatureBuilder(FeatureBuilder):
             self.spark_session,
             start_time,
             end_time,
-            pull_all=self._sequence_max_length(view) is not None,
+            pull_all=self._is_sequence_materialization(view),
         )
         self.nodes.append(node)
         return node

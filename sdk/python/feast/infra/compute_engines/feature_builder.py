@@ -77,15 +77,28 @@ class FeatureBuilder(ABC):
         return getattr(view, "enable_validation", False)
 
     def _should_dedupe(self, view):
+        if (
+            self._is_sequence_materialization(view)
+            and view.online_config.max_length is None
+        ):
+            # A sequence with no max_length keeps every event, so skip dedup.
+            return False
         return isinstance(self.task, HistoricalRetrievalTask) or self.task.only_latest
 
-    def _sequence_max_length(self, view) -> Optional[int]:
-        """Return max_length when materializing a sequence-mode view, else None.
+    def _is_sequence_materialization(self, view) -> bool:
+        """Whether this task materializes a sequence-mode view.
 
         Such views pull every row from the offline store and keep the newest
-        max_length rows per entity, instead of only the latest one.
+        max_length rows per entity, or every row when max_length is unset,
+        instead of only the latest one.
         """
-        if isinstance(self.task, MaterializationTask) and uses_append_write_mode(view):
+        return isinstance(self.task, MaterializationTask) and uses_append_write_mode(
+            view
+        )
+
+    def _sequence_max_length(self, view) -> Optional[int]:
+        """Return max_length when materializing a sequence-mode view, else None."""
+        if self._is_sequence_materialization(view):
             return view.online_config.max_length
         return None
 
