@@ -345,6 +345,23 @@ class RemoteOnlineStore(OnlineStore):
             )
             progress(data_length)
 
+    def online_append(
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        data: List[
+            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+        ],
+        progress: Optional[Callable[[int], Any]] = None,
+    ) -> None:
+        """
+        Appends rows for a sequence-mode feature view through the feature server.
+
+        Sends the same request as online_write_batch. The feature server's write
+        path appends for feature views with online_config write_mode="append".
+        """
+        self.online_write_batch(config, table, data, progress)
+
     def online_read(
         self,
         config: RepoConfig,
