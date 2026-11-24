@@ -13,13 +13,17 @@
 # limitations under the License.
 
 import uuid as uuid_module
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import pandas as pd
 import pyarrow as pa
 
 from feast.feature_view import DUMMY_ENTITY_ID
-from feast.protos.feast.serving.ServingService_pb2 import GetOnlineFeaturesResponse
+from feast.protos.feast.serving.ServingService_pb2 import (
+    GetOnlineFeaturesResponse,
+    SequenceEvent,
+)
 from feast.torch_wrapper import get_torch
 from feast.type_map import feast_value_type_to_python_type
 from feast.value_type import ValueType
@@ -30,6 +34,7 @@ else:
     TorchTensor = Any
 
 TIMESTAMP_POSTFIX: str = "__ts"
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 class OnlineResponse:
@@ -84,6 +89,61 @@ class OnlineResponse:
                 ]
 
         return response
+
+    def to_sequences(self) -> Dict[str, List[List[Dict[str, Any]]]]:
+        """
+        Converts the sequences of sequence-mode feature views into a dictionary.
+
+        Sequences are only returned when get_online_features is called with
+        sequence_length above 1.
+
+        Returns:
+            Feature view name -> one list of events per entity row, in entity row
+            order. Each event is a dict with "event_timestamp" (a UTC datetime)
+            and one key per feature.
+        """
+        response: Dict[str, List[List[Dict[str, Any]]]] = {}
+        for sequence in self.proto.sequences:
+            response.setdefault(sequence.feature_view, []).append(
+                [self._sequence_event_to_dict(event) for event in sequence.events]
+            )
+        return response
+
+    def to_sequence_df(self) -> pd.DataFrame:
+        """
+        Converts the sequences of sequence-mode feature views into a Pandas
+        dataframe with one row per event.
+
+        Columns are "feature_view", the entity join keys, "event_timestamp" and
+        the features. Entity rows without events have no rows.
+        """
+        rows = []
+        for sequence in self.proto.sequences:
+            entity_key = {
+                name: feast_value_type_to_python_type(value)
+                for name, value in sequence.entity_key.items()
+            }
+            for event in sequence.events:
+                rows.append(
+                    {
+                        "feature_view": sequence.feature_view,
+                        **entity_key,
+                        **self._sequence_event_to_dict(event),
+                    }
+                )
+        return pd.DataFrame(rows)
+
+    def _sequence_event_to_dict(self, event: SequenceEvent) -> Dict[str, Any]:
+        return {
+            "event_timestamp": _EPOCH
+            + timedelta(milliseconds=event.event_timestamp_ms),
+            **{
+                name: feast_value_type_to_python_type(
+                    value, self._feature_types.get(name)
+                )
+                for name, value in event.features.items()
+            },
+        }
 
     def to_df(self, include_event_timestamps: bool = False) -> pd.DataFrame:
         """
