@@ -87,6 +87,7 @@ class FlinkFeatureBuilder(FeatureBuilder):
             self.split_num,
             self.task.start_time,
             self.task.end_time,
+            pull_all=self._is_sequence_materialization(view),
         )
         self.nodes.append(node)
         return node
@@ -142,6 +143,7 @@ class FlinkFeatureBuilder(FeatureBuilder):
             self.table_env,
             self.split_num,
             inputs=[input_node],
+            keep=self._dedup_keep(view),
         )
         self.nodes.append(node)
         return node

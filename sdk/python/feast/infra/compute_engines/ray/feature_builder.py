@@ -63,6 +63,7 @@ class RayFeatureBuilder(FeatureBuilder):
             config=self.config,
             start_time=start_time,
             end_time=end_time,
+            pull_all=self._is_sequence_materialization(view),
         )
 
         self.nodes.append(node)
@@ -140,6 +141,7 @@ class RayFeatureBuilder(FeatureBuilder):
             column_info=column_info,
             config=self.config,
             is_materialization=self.is_materialization,
+            keep=self._dedup_keep(view),
         )
         node.add_input(input_node)
 
