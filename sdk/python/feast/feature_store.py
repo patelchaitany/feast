@@ -93,6 +93,7 @@ from feast.infra.registry.registry import Registry
 from feast.infra.registry.sql import SqlRegistry
 from feast.labeling.label_view import LabelView
 from feast.on_demand_feature_view import OnDemandFeatureView
+from feast.online_config import uses_sequence_mode
 from feast.online_response import OnlineResponse
 from feast.permissions.permission import Permission
 from feast.project import Project
@@ -2020,6 +2021,7 @@ class FeatureStore:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         filter_by_created_timestamp: bool = False,
+        sequence_length: Optional[int] = None,
     ) -> RetrievalJob:
         """Enrich an entity dataframe with historical feature values for either training or batch scoring.
 
@@ -2056,6 +2058,13 @@ class FeatureStore:
                 timestamp, so retrieval only reflects what was known at the event time and backfilled
                 values cannot leak into training data. Feature views without a
                 ``created_timestamp_column`` are unaffected. Defaults to False.
+            sequence_length (Optional[int]): The number of events to return per entity row for
+                feature views with ``online_config mode="sequence"``. Defaults to each feature
+                view's ``online_config.max_length``. When set, those feature views are returned
+                as list columns (one list per feature, newest event first) containing the last
+                ``sequence_length`` events at or before each entity row's event timestamp,
+                matching what ``get_online_features`` with the same ``sequence_length`` serves
+                at inference time. Feature views without ``mode="sequence"`` are unaffected.
 
         Returns:
             RetrievalJob which can be used to materialize the results.
@@ -2096,6 +2105,13 @@ class FeatureStore:
 
         if entity_df is None and end_date is None:
             end_date = datetime.now(tz=_timezone.utc)
+
+        if sequence_length is not None and (
+            isinstance(sequence_length, bool) or not isinstance(sequence_length, int)
+        ):
+            raise ValueError("sequence_length must be an integer.")
+        if sequence_length is not None and sequence_length <= 0:
+            raise ValueError("sequence_length must be a positive integer.")
 
         _feature_refs = utils._get_features(
             self.registry, self.project, features, allow_cache=True
@@ -2156,6 +2172,15 @@ class FeatureStore:
         utils._validate_feature_refs(_feature_refs, full_feature_names)
         provider = self._get_provider()
 
+        if sequence_length is not None and not any(
+            uses_sequence_mode(view) for view in feature_views
+        ):
+            _logger.warning(
+                "sequence_length was passed to get_historical_features but none of the "
+                "requested feature views use online_config mode='sequence'; the "
+                "parameter will have no effect."
+            )
+
         # Optional kwargs
         kwargs: Dict[str, Any] = {}
         if start_date is not None:
@@ -2164,6 +2189,8 @@ class FeatureStore:
             kwargs["end_date"] = end_date
         if filter_by_created_timestamp:
             kwargs["filter_by_created_timestamp"] = filter_by_created_timestamp
+        if sequence_length is not None:
+            kwargs["sequence_length"] = sequence_length
 
         _retrieval_start = time.monotonic()
 

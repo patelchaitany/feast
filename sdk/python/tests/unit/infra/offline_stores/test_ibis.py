@@ -15,12 +15,15 @@ from feast.infra.offline_stores.ibis import (
     pull_all_from_table_or_query_ibis,
     pull_latest_from_table_or_query_ibis,
 )
-from feast.types import Int64
+from feast.online_config import OnlineConfig
+from feast.types import Float64, Int64
 from feast.value_type import ValueType
 
 
-def pa_datetime(year, month, day):
-    return pa.scalar(datetime(year, month, day), type=pa.timestamp("s", tz="UTC"))
+def pa_datetime(year, month, day, hour=0, minute=0):
+    return pa.scalar(
+        datetime(year, month, day, hour, minute), type=pa.timestamp("s", tz="UTC")
+    )
 
 
 def customer_table():
@@ -92,6 +95,7 @@ def point_in_time_join_brute(
             join_key_map,
             feature_refs,
             ttl,
+            _sequence_length,
         ) in feature_tables:
             if i == 0:
                 ret_fields.extend(
@@ -162,6 +166,7 @@ def test_point_in_time_join():
                 {"customer_id": "customer_id"},
                 ["feature1"],
                 timedelta(days=10),
+                None,
             )
         ],
     )
@@ -176,6 +181,7 @@ def test_point_in_time_join():
                 {"customer_id": "customer_id"},
                 ["feature1"],
                 timedelta(days=10),
+                None,
             )
         ],
     ).to_pyarrow()
@@ -220,6 +226,7 @@ def test_point_in_time_join_keeps_entity_rows_apart():
                 {"driver_id": "driver_id"},
                 ["driver_rating"],
                 timedelta(days=10),
+                None,
             ),
             (
                 ibis.memtable(customers),
@@ -228,6 +235,7 @@ def test_point_in_time_join_keeps_entity_rows_apart():
                 {"customer_id": "customer_id"},
                 ["customer_score"],
                 timedelta(days=10),
+                None,
             ),
         ],
     ).to_pyarrow()
@@ -276,6 +284,7 @@ def test_point_in_time_join_keeps_features_whose_name_ends_in_y():
                 {"driver_id": "driver_id"},
                 ["pos_x", "pos_y"],
                 timedelta(days=10),
+                None,
             )
         ],
     ).to_pyarrow()
@@ -316,12 +325,254 @@ def test_point_in_time_join_allows_columns_named_like_the_y_copies():
                 {"driver_id": "driver_id"},
                 ["driver_id_y"],
                 timedelta(days=10),
+                None,
             )
         ],
     ).to_pyarrow()
 
     rows = {row["driver_id"]: row["driver_id_y"] for row in actual.to_pylist()}
     assert rows == {1: 10.0, 2: 20.0}
+
+
+def sequence_events_table():
+    """Events for driver 1001 at five timestamps; 11:45 is in the future of
+    every entity row below."""
+    return pa.table(
+        {
+            "driver_id": [1001] * 5,
+            "event_timestamp": [
+                pa_datetime(2024, 1, 1, 9, 15),
+                pa_datetime(2024, 1, 1, 10, 0),
+                pa_datetime(2024, 1, 1, 10, 30),
+                pa_datetime(2024, 1, 1, 10, 45),
+                pa_datetime(2024, 1, 1, 11, 45),
+            ],
+            "created": [
+                pa_datetime(2024, 1, 1, 9, 15),
+                pa_datetime(2024, 1, 1, 10, 0),
+                pa_datetime(2024, 1, 1, 10, 30),
+                pa_datetime(2024, 1, 1, 10, 45),
+                pa_datetime(2024, 1, 1, 11, 45),
+            ],
+            "conv_rate": [0.60, 0.66, 0.71, 0.78, 0.90],
+        }
+    )
+
+
+def test_point_in_time_join_sequence_mode():
+    entity_table = pa.table(
+        {
+            "driver_id": [1001, 1001, 1002],
+            "event_timestamp": [
+                pa_datetime(2024, 1, 1, 10, 59),
+                pa_datetime(2024, 1, 1, 10, 20),
+                pa_datetime(2024, 1, 1, 10, 59),
+            ],
+        }
+    )
+
+    # The 10:45 event has no trips value.
+    events = sequence_events_table().append_column(
+        "trips", pa.array([1, 2, 3, None, 5], type=pa.int64())
+    )
+
+    actual = point_in_time_join(
+        ibis.memtable(entity_table),
+        feature_tables=[
+            (
+                ibis.memtable(events),
+                "event_timestamp",
+                "created",
+                {"driver_id": "driver_id"},
+                ["conv_rate", "trips"],
+                timedelta(days=1),
+                2,
+            ),
+        ],
+    ).to_pyarrow()
+
+    assert pa.types.is_list(actual.schema.field("conv_rate").type)
+    rows = actual.to_pylist()
+    assert len(rows) == 3
+    by_key = {(row["driver_id"], str(row["event_timestamp"])): row for row in rows}
+    # Newest 2 events as of 10:59, newest first; 11:45 is future data. The
+    # null stays in place so both lists line up event by event.
+    latest = by_key[(1001, "2024-01-01 10:59:00+00:00")]
+    assert (latest["conv_rate"], latest["trips"]) == ([0.78, 0.71], [None, 3])
+    # Ragged: as of 10:20 only two events exist in total.
+    assert by_key[(1001, "2024-01-01 10:20:00+00:00")]["conv_rate"] == [0.66, 0.60]
+    # Entity with no events gets an empty sequence, like online serving.
+    assert by_key[(1002, "2024-01-01 10:59:00+00:00")]["conv_rate"] == []
+
+
+def test_point_in_time_join_sequence_max_age_window():
+    """online_config.max_age bounds the sequence lookback, mirroring
+    online_read_sequence."""
+    entity_table = pa.table(
+        {
+            "driver_id": [1001],
+            "event_timestamp": [pa_datetime(2024, 1, 1, 10, 59)],
+        }
+    )
+
+    actual = point_in_time_join(
+        ibis.memtable(entity_table),
+        feature_tables=[
+            (
+                ibis.memtable(sequence_events_table()),
+                "event_timestamp",
+                "created",
+                {"driver_id": "driver_id"},
+                ["conv_rate"],
+                timedelta(minutes=30),  # max_age window instead of the fv ttl
+                5,
+            ),
+        ],
+    ).to_pyarrow()
+
+    # As of 10:59 with a 30 minute window: only 10:30 and 10:45 qualify.
+    assert actual.to_pylist()[0]["conv_rate"] == [0.78, 0.71]
+
+
+def test_get_historical_features_ibis_sequence_mode():
+    """Sequence feature views return list columns by default, capped at
+    online_config.max_length, newest first and point-in-time correct."""
+    driver = Entity(
+        name="driver_id", join_keys=["driver_id"], value_type=ValueType.INT64
+    )
+    driver_stats = FeatureView(
+        name="driver_stats",
+        entities=[driver],
+        schema=[Field(name="conv_rate", dtype=Float64)],
+        source=FileSource(
+            path="unused.parquet",
+            timestamp_field="event_timestamp",
+            created_timestamp_column="created",
+        ),
+        online_config=OnlineConfig(
+            mode="sequence",
+            write_mode="append",
+            max_length=3,
+        ),
+    )
+    entity_df = pd.DataFrame(
+        {
+            "driver_id": [1001],
+            "event_timestamp": [datetime(2024, 1, 1, 10, 59, tzinfo=timezone.utc)],
+        }
+    )
+
+    def retrieve(**kwargs):
+        return get_historical_features_ibis(
+            config=MagicMock(),
+            feature_views=[driver_stats],
+            feature_refs=["driver_stats:conv_rate"],
+            entity_df=entity_df,
+            registry=MagicMock(),
+            project="test",
+            data_source_reader=lambda *_: ibis.memtable(sequence_events_table()),
+            data_source_writer=MagicMock(),
+            **kwargs,
+        )
+
+    # Default: the online_config.max_length newest events as of 10:59.
+    default_df = retrieve().to_df()
+    assert default_df["conv_rate"].iloc[0].tolist() == [0.78, 0.71, 0.66]
+
+    # Override: fewer events for this training run.
+    override_df = retrieve(sequence_length=2).to_df()
+    assert override_df["conv_rate"].iloc[0].tolist() == [0.78, 0.71]
+
+    # An override above max_length is capped, as online reads are.
+    capped_df = retrieve(sequence_length=10).to_df()
+    assert capped_df["conv_rate"].iloc[0].tolist() == [0.78, 0.71, 0.66]
+
+    # Arrow output uses list arrays.
+    arrow = retrieve().to_arrow()
+    assert pa.types.is_list(arrow.schema.field("conv_rate").type)
+
+
+def test_get_historical_features_ibis_sequence_max_age():
+    """The sequence lookback window is online_config.max_age, not the feature
+    view ttl, matching what online_read_sequence serves."""
+    driver = Entity(
+        name="driver_id", join_keys=["driver_id"], value_type=ValueType.INT64
+    )
+    driver_stats = FeatureView(
+        name="driver_stats",
+        entities=[driver],
+        schema=[Field(name="conv_rate", dtype=Float64)],
+        source=FileSource(
+            path="unused.parquet",
+            timestamp_field="event_timestamp",
+            created_timestamp_column="created",
+        ),
+        ttl=timedelta(days=365),
+        online_config=OnlineConfig(
+            mode="sequence",
+            write_mode="append",
+            max_length=3,
+            max_age=timedelta(minutes=30),
+        ),
+    )
+    entity_df = pd.DataFrame(
+        {
+            "driver_id": [1001],
+            "event_timestamp": [datetime(2024, 1, 1, 10, 59, tzinfo=timezone.utc)],
+        }
+    )
+
+    df = get_historical_features_ibis(
+        config=MagicMock(),
+        feature_views=[driver_stats],
+        feature_refs=["driver_stats:conv_rate"],
+        entity_df=entity_df,
+        registry=MagicMock(),
+        project="test",
+        data_source_reader=lambda *_: ibis.memtable(sequence_events_table()),
+        data_source_writer=MagicMock(),
+    ).to_df()
+
+    # ttl would allow all five events; max_age keeps only the last half hour.
+    assert df["conv_rate"].iloc[0].tolist() == [0.78, 0.71]
+
+
+def test_get_historical_features_ibis_latest_mode_unchanged():
+    """Feature views without sequence online_config keep returning a single
+    latest value."""
+    driver = Entity(
+        name="driver_id", join_keys=["driver_id"], value_type=ValueType.INT64
+    )
+    driver_stats = FeatureView(
+        name="driver_stats",
+        entities=[driver],
+        schema=[Field(name="conv_rate", dtype=Float64)],
+        source=FileSource(
+            path="unused.parquet",
+            timestamp_field="event_timestamp",
+            created_timestamp_column="created",
+        ),
+    )
+    entity_df = pd.DataFrame(
+        {
+            "driver_id": [1001],
+            "event_timestamp": [datetime(2024, 1, 1, 10, 59, tzinfo=timezone.utc)],
+        }
+    )
+
+    df = get_historical_features_ibis(
+        config=MagicMock(),
+        feature_views=[driver_stats],
+        feature_refs=["driver_stats:conv_rate"],
+        entity_df=entity_df,
+        registry=MagicMock(),
+        project="test",
+        data_source_reader=lambda *_: ibis.memtable(sequence_events_table()),
+        data_source_writer=MagicMock(),
+    ).to_df()
+
+    assert df["conv_rate"].iloc[0] == 0.78
+    assert isinstance(df["conv_rate"].iloc[0], float)
 
 
 @pytest.mark.parametrize(

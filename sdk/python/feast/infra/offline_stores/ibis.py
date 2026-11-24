@@ -28,6 +28,7 @@ from feast.infra.offline_stores.offline_utils import (
 )
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.on_demand_feature_view import OnDemandFeatureView
+from feast.online_config import uses_sequence_mode
 from feast.repo_config import RepoConfig
 from feast.saved_dataset import SavedDatasetStorage
 
@@ -221,6 +222,7 @@ def get_historical_features_ibis(
     staging_location_endpoint_override: Optional[str] = None,
     event_expire_timestamp_fn=None,
     filter_by_created_timestamp: bool = False,
+    sequence_length: Optional[int] = None,
 ) -> RetrievalJob:
     entity_schema = _get_entity_schema(
         entity_df=entity_df,
@@ -256,6 +258,27 @@ def get_historical_features_ibis(
 
         timestamp_field = feature_view.batch_source.timestamp_field
         created_timestamp_column = feature_view.batch_source.created_timestamp_column
+
+        # Sequence-mode feature views mirror online serving: the lookback
+        # window is online_config.max_age (which online_read_sequence also
+        # enforces), not the feature view ttl, and the newest
+        # ``sequence_length`` events are returned as list columns.
+        fv_sequence_length: Optional[int] = None
+        ttl = feature_view.ttl
+        online_config = feature_view.online_config
+        if uses_sequence_mode(feature_view):
+            assert online_config is not None
+            # OnlineConfig requires max_length in sequence mode. Online reads
+            # never return more than max_length events, so an override above
+            # it is capped the same way.
+            max_length = online_config.max_length
+            assert max_length is not None
+            fv_sequence_length = (
+                min(sequence_length, max_length)
+                if sequence_length is not None
+                else max_length
+            )
+            ttl = online_config.max_age
 
         # deduplicate() orders by created_timestamp_column whether or not the cutoff is
         # on, so this cannot be gated on it. Casting an already-UTC column is a no-op.
@@ -296,7 +319,8 @@ def get_historical_features_ibis(
             created_timestamp_column,
             _join_key_map(feature_view),
             feature_refs,
-            feature_view.ttl,
+            ttl,
+            fv_sequence_length,
         )
 
     res = point_in_time_join(
@@ -436,7 +460,15 @@ def deduplicate(
     group_by_cols: List[str],
     event_timestamp_col: str,
     created_timestamp_col: Optional[str],
+    keep: int = 1,
 ):
+    """Keep the newest ``keep`` rows per group, ordered newest first.
+
+    ``keep=1`` (the default) reproduces the historical single-value
+    point-in-time join. Sequence-mode feature views pass their resolved
+    ``max_length`` so the newest ``keep`` events per entity row survive for
+    list aggregation.
+    """
     order_by_fields = [ibis.desc(table[event_timestamp_col])]
     if created_timestamp_col:
         order_by_fields.append(ibis.desc(table[created_timestamp_col]))
@@ -444,12 +476,22 @@ def deduplicate(
     window = ibis.window(group_by=group_by_cols, order_by=order_by_fields, following=0)
     table = table.mutate(rn=ibis.row_number().over(window))
 
-    return table.filter(table["rn"] == ibis.literal(0)).drop("rn")
+    return table.filter(table["rn"] < ibis.literal(keep)).drop("rn")
 
 
 def point_in_time_join(
     entity_table: Table,
-    feature_tables: List[Tuple[Table, str, str, Dict[str, str], List[str], timedelta]],
+    feature_tables: List[
+        Tuple[
+            Table,
+            str,
+            str,
+            Dict[str, str],
+            List[str],
+            Optional[timedelta],
+            Optional[int],
+        ]
+    ],
     event_timestamp_col="event_timestamp",
     event_expire_timestamp_fn=None,
     filter_by_created_timestamp: bool = False,
@@ -461,6 +503,7 @@ def point_in_time_join(
         timestamp_field,
         created_timestamp_field,
         join_key_map,
+        _,
         _,
         _,
     ) in feature_tables:
@@ -475,6 +518,7 @@ def point_in_time_join(
     # Track the columns we want to keep explicitly
     entity_columns = list(entity_table.columns)
     all_feature_cols: List[str] = []
+    sequence_cols: List[str] = []
 
     for (
         feature_table,
@@ -483,6 +527,7 @@ def point_in_time_join(
         join_key_map,
         feature_refs,
         ttl,
+        sequence_length,
     ) in feature_tables:
         if ttl:
             if not event_expire_timestamp_fn:
@@ -542,7 +587,30 @@ def point_in_time_join(
             group_by_cols=["entity_row_id"],
             event_timestamp_col=timestamp_field,
             created_timestamp_col=created_timestamp_field,
+            keep=sequence_length or 1,
         )
+
+        if sequence_length:
+            # Sequence-mode feature view: collapse the newest ``sequence_length``
+            # events per entity row into list columns, newest first, matching the
+            # online store's default sequence_order="desc".
+            # The order goes inside each ARRAY_AGG: ordering the table before
+            # aggregating does not order the lists. Nulls are kept so the lists
+            # of one entity row stay aligned event by event.
+            order_by_fields = [ibis.desc(feature_table[timestamp_field])]
+            if created_timestamp_field:
+                order_by_fields.append(
+                    ibis.desc(feature_table[created_timestamp_field])
+                )
+            feature_table = feature_table.group_by("entity_row_id").aggregate(
+                {
+                    ref: feature_table[ref].collect(
+                        order_by=order_by_fields, include_null=True
+                    )
+                    for ref in feature_refs
+                }
+            )
+            sequence_cols.extend(feature_refs)
 
         select_cols = ["entity_row_id"]
         select_cols.extend(feature_refs)
@@ -556,6 +624,17 @@ def point_in_time_join(
             predicates=[feature_table.entity_row_id == acc_table.entity_row_id],
             lname="",
             rname="{name}_yyyy",
+        )
+
+    # Entity rows without events get an empty list, like an empty online sequence.
+    if sequence_cols:
+        acc_table = acc_table.mutate(
+            {
+                c: ibis.coalesce(
+                    acc_table[c], ibis.literal([], type=acc_table[c].type())
+                )
+                for c in sequence_cols
+            }
         )
 
     # Select only the columns we want: entity columns (minus entity_row_id) + all feature columns

@@ -702,6 +702,7 @@ class DuckDBOfflineStoreConfig(FeastConfigBaseModel):
 
 class DuckDBOfflineStore(OfflineStore):
     supports_filter_by_created_timestamp = True
+    supports_sequence_retrieval = True
 
     @staticmethod
     def pull_latest_from_table_or_query(
@@ -739,6 +740,7 @@ class DuckDBOfflineStore(OfflineStore):
         project: str,
         full_feature_names: bool = False,
         filter_by_created_timestamp: bool = False,
+        sequence_length: Optional[int] = None,
     ) -> RetrievalJob:
         # A Lance pin selects data, never shape: reject a pinned version whose
         # schema cannot satisfy the declared schema before planning any reads.
@@ -756,6 +758,7 @@ class DuckDBOfflineStore(OfflineStore):
             staging_location=config.offline_store.staging_location,
             staging_location_endpoint_override=config.offline_store.staging_location_endpoint_override,
             filter_by_created_timestamp=filter_by_created_timestamp,
+            sequence_length=sequence_length,
         )
 
     @staticmethod
