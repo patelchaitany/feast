@@ -139,6 +139,8 @@ def test_decorated_function_renders_the_same_after_a_registry_round_trip():
         (_concierge, {"tokenizer": "cl100k"}),
         (_concierge, {"template": "{{ name }}"}),
         (_concierge, {"variables": {"name": {"priority": "critical"}}}),
+        (_concierge, {"template": "prompts:/concierge", "max_tokens": 20}),
+        (_concierge, {"template": "prompts:/concierge@production"}),
     ],
     ids=[
         "module import",
@@ -148,6 +150,8 @@ def test_decorated_function_renders_the_same_after_a_registry_round_trip():
         "unknown tokenizer",
         "template without max_tokens",
         "variables without template",
+        "MLflow URI without version or alias",
+        "MLflow URI without max_tokens",
     ],
 )
 def test_prompts_that_cannot_work_fail_when_defined(function, settings):
@@ -179,8 +183,8 @@ def test_feast_apply_stores_each_changed_prompt_as_a_new_version(registry):
     assert registry.list_prompt_versions("concierge", PROJECT) == []
 
 
-def test_render_prompt_reads_features_online_without_storing_the_prompt(tmp_path):
-    now = datetime.now().replace(microsecond=0)
+def _profile_store(tmp_path, now: datetime, **config):
+    """A local store holding one user's profile, and the profile view."""
     data_path = tmp_path / "profiles.parquet"
     pd.DataFrame(
         {
@@ -190,7 +194,6 @@ def test_render_prompt_reads_features_online_without_storing_the_prompt(tmp_path
             "event_timestamp": [now - timedelta(hours=1)],
         }
     ).to_parquet(data_path)
-    profile = _profile_view(str(data_path))
     store = FeatureStore(
         config=RepoConfig(
             project=PROJECT,
@@ -198,8 +201,15 @@ def test_render_prompt_reads_features_online_without_storing_the_prompt(tmp_path
             provider="local",
             online_store={"type": "sqlite", "path": str(tmp_path / "online.db")},
             entity_key_serialization_version=3,
+            **config,
         )
     )
+    return store, _profile_view(str(data_path))
+
+
+def test_render_prompt_reads_features_online_without_storing_the_prompt(tmp_path):
+    now = datetime.now().replace(microsecond=0)
+    store, profile = _profile_store(tmp_path, now)
     store.apply([USER, profile, _build(profile=profile)])
     store.materialize(now - timedelta(days=1), now)
     store.apply([_build(_friendlier_concierge, profile=profile)])
@@ -234,3 +244,80 @@ def test_render_prompt_reads_features_online_without_storing_the_prompt(tmp_path
     assert offline.text == latest.text
     assert served["prompts"][0]["text"] == pinned.text
     assert client.get("/prompts/concierge").json()["meta"]["versionNumber"] == 2
+
+
+@pytest.fixture
+def mlflow_prompts(tmp_path) -> str:
+    """An MLflow tracking URI whose registry holds two concierge versions."""
+    mlflow = pytest.importorskip("mlflow")
+    tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    client = mlflow.MlflowClient(tracking_uri=tracking_uri)
+    client.register_prompt(
+        name="concierge",
+        template="You are serving {{ name }} in {{ location }}. Visited: {{ visits }}",
+        model_config={"model_name": "gpt-4o", "temperature": 0.2},
+    )
+    client.register_prompt(
+        name="concierge",
+        template="Hello {{ name }}! In {{ location }}, after {{ visits }}",
+    )
+    client.register_prompt(
+        name="chat", template=[{"role": "system", "content": "Serve {{ name }}"}]
+    )
+    client.set_prompt_alias("concierge", "production", 1)
+    return tracking_uri
+
+
+def test_template_from_mlflow_is_loaded_when_the_prompt_renders(mlflow_prompts):
+    settings = {"max_tokens": 20, "variables": {"name": {"priority": "critical"}}}
+    production = Prompt.from_proto(
+        _build(
+            _concierge_variables,
+            template="prompts:/concierge@production",
+            **settings,
+        ).to_proto()
+    )
+    pinned = _build(_concierge_variables, template="prompts:/concierge/2", **settings)
+    chat = _build(_concierge_variables, template="prompts:/chat/1", **settings)
+    row = {
+        "user_profile__name": "Jane",
+        "user_profile__visits": "Mama Ricotta's, " * 20,
+        "location": "Chicago",
+    }
+
+    rendered = production.render(row, mlflow_tracking_uri=mlflow_prompts)
+
+    assert rendered.text.startswith("You are serving Jane in Chicago. Visited: Mama")
+    assert rendered.truncated_variables == ("visits",)
+    assert rendered.template_uri == "prompts:/concierge/1"
+    assert rendered.model_config == {"model_name": "gpt-4o", "temperature": 0.2}
+    assert pinned.render(row, mlflow_tracking_uri=mlflow_prompts).text.startswith(
+        "Hello Jane! In Chicago, after Mama"
+    )
+    with pytest.raises(ValueError, match="chat prompt"):
+        chat.render(row, mlflow_tracking_uri=mlflow_prompts)
+
+
+def test_render_prompt_loads_mlflow_templates_from_feature_store_config(
+    tmp_path, mlflow_prompts
+):
+    now = datetime.now().replace(microsecond=0)
+    store, profile = _profile_store(
+        tmp_path, now, mlflow={"tracking_uri": mlflow_prompts}
+    )
+    concierge = _build(
+        _concierge_variables,
+        profile=profile,
+        template="prompts:/concierge@production",
+        max_tokens=50,
+    )
+    store.apply([USER, profile, concierge])
+    store.materialize(now - timedelta(days=1), now)
+
+    [rendered] = store.render_prompt(
+        "concierge", [{"user_id": "user1", "location": "Chicago"}]
+    )
+
+    assert rendered.text == ("You are serving Jane in Chicago. Visited: Mama Ricotta's")
+    assert rendered.reference == "concierge@v1"
+    assert rendered.template_uri == "prompts:/concierge/1"

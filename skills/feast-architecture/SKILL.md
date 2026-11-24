@@ -119,7 +119,12 @@ The spec stores the function's source text (`function_source`), one `PromptSourc
 rejects functions that use module-level names (`inspect.getclosurevars`), checks the parameter count,
 and rebuilds the function with `udf_rehydrate.rehydrate_udf_from_source`, so local renders run the
 same code the feature server does; `from_proto` rebuilds lazily, on first render. `render_prompt`
-reads `prompt.features` with `full_feature_names=True` and passes each source its dict. Each
+reads `prompt.features` with `full_feature_names=True` and passes each source its dict. A
+`template` of `prompts:/<name>/<version>` or `prompts:/<name>@<alias>` is wording in the MLflow Prompt
+Registry: `Prompt._resolve_template` loads it at render time through
+`mlflow_integration/prompts.py` (`MlflowClient.load_prompt`, text prompts only), compiles one
+`PromptTemplate` per resolved MLflow version, and reports that version in `RenderedPrompt.template_uri`;
+`render_prompt` passes the `mlflow` config's tracking URI. Each
 `Prompt` version is its own `Registry.prompts` entry (SQL: one `prompts` row keyed by name,
 project and `version_number`); the highest `version_number` is active. `_assign_version` gives an unchanged definition its existing version and a changed one
 the next. Only the file and SQL registries store prompts. On `BaseRegistry`, `list_prompts` and

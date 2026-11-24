@@ -346,6 +346,10 @@ Start the Feast UI with:
 feast ui --host 127.0.0.1 --port 8888
 ```
 
+## Prompt templates
+
+A Feast [`@prompt`](../getting-started/architecture/llm-context-assembly.md#templates-stored-in-mlflow) can take its wording from the MLflow Prompt Registry: pass `template="prompts:/<name>@<alias>"` or `"prompts:/<name>/<version>"`. MLflow owns the wording, its versions and aliases; Feast reads the features that fill it and cuts the variables to fit the prompt's token budget. `store.render_prompt` loads the template from this section's `tracking_uri` (or `MLFLOW_TRACKING_URI`); `enabled` does not need to be set for this. Each rendered prompt reports the MLflow version it used and the version's `model_config`.
+
 ## MLflow as a DataSource 
 
 Feast supports MLflow as a first-class **offline DataSource** via `MlflowDatasetSource`. Users define `FeatureView(source=MlflowDatasetSource(...))` and call `get_historical_features()` / `create_saved_dataset()` to retrieve tabular data from MLflow-tracked artifacts or GenAI Datasets.
