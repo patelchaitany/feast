@@ -4194,6 +4194,8 @@ class FeatureStore:
             full_feature_names=full_feature_names,
             include_feature_view_version_metadata=include_feature_view_version_metadata,
         )
+        if isinstance(features, FeatureService) and features.output_field:
+            response._fill_text_response(features.output_field)
 
         # Auto-log to MLflow if configured
         try:
@@ -4271,6 +4273,8 @@ class FeatureStore:
             full_feature_names=full_feature_names,
             include_feature_view_version_metadata=include_feature_view_version_metadata,
         )
+        if isinstance(features, FeatureService) and features.output_field:
+            response._fill_text_response(features.output_field)
 
         try:
             if self.mlflow is not None and self.config.mlflow.auto_log:

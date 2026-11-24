@@ -164,10 +164,40 @@ Two details matter here:
 
 A prompt built this way is a feature, not a `@prompt`: it has no versions of its own, and is read with `get_online_features`.
 
+### Returning the prompt as plain text
+
+A feature service with `output_format="text"` hands back one of its String features as plain text, so a caller need not know which view builds the prompt:
+
+```python
+restaurant_prompt_service = FeatureService(
+    name="restaurant_prompt_service",
+    features=[restaurant_prompt_view],
+    output_format="text",
+    output_field="system_prompt",
+)
+
+prompt_text = store.get_online_features(
+    features=restaurant_prompt_service,
+    entity_rows=[{"user_id": "u123"}],
+).to_text()
+```
+
+`to_text()` needs a single entity row; for several, `response.proto.text_response` holds one string per row, and over gRPC the same field arrives in `GetOnlineFeaturesResponse`. The HTTP feature server returns the text itself when the request sends `Accept: text/plain`:
+
+```bash
+curl -X POST http://localhost:6566/get-online-features \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/plain" \
+  -d '{"feature_service": "restaurant_prompt_service", "entities": {"user_id": ["u123"]}}'
+```
+
+Without that header, and for every other feature service, the response is the usual JSON. `feast apply` refuses a text-mode service whose `output_field` is not exactly one String feature among its features.
+
 ## Code
 
 * `sdk/python/feast/prompt.py`: the `@prompt` decorator, `Prompt` and `RenderedPrompt`.
 * `protos/feast/core/Prompt.proto`: one message per prompt version, in `Registry.prompts`.
 * Registry: `apply_prompt`, `get_prompt`, `list_prompts`, `list_prompt_versions` and `delete_prompt` in `infra/registry/base_registry.py`, `registry.py` (file) and `sql.py`, with shared readers in `proto_registry_utils.py`.
 * `feature_store.py`: `get_prompt`, `list_prompts`, `list_prompt_versions` and `render_prompt`. `feature_server.py`: `GET /prompts/{name}` and `POST /render-prompt`. `cli/prompts.py`: `feast prompts`.
+* Text output: `output_format` and `output_field` in `feature_service.py` and `FeatureService.proto`, `OnlineResponse.to_text()` in `online_response.py`, `text_response` in `ServingService.proto`, and the `Accept: text/plain` branch of `POST /get-online-features` in `feature_server.py`.
 * `sdk/python/feast/context/`: the building blocks, one file each: `token_budget.py`, `tokenizer.py`, `priority_select.py`, `render.py`, `compress.py` and `prompt_template.py`.

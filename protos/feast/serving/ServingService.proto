@@ -110,6 +110,10 @@ message GetOnlineFeaturesResponse {
     }
 
     bool status = 3;
+
+    // For a feature service with output_format "text": its output_field as
+    // plain text, one string per entity row. Empty otherwise.
+    repeated string text_response = 4;
 }
 
 message FeatureViewMetadata {

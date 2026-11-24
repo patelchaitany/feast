@@ -67,6 +67,8 @@ class FeatureServiceSpec(google.protobuf.message.Message):
     LOGGING_CONFIG_FIELD_NUMBER: builtins.int
     PRECOMPUTE_ONLINE_FIELD_NUMBER: builtins.int
     PRECOMPUTE_OMIT_NAMES_FIELD_NUMBER: builtins.int
+    OUTPUT_FORMAT_FIELD_NUMBER: builtins.int
+    OUTPUT_FIELD_FIELD_NUMBER: builtins.int
     name: builtins.str
     """Name of the Feature Service. Must be unique. Not updated."""
     project: builtins.str
@@ -94,6 +96,12 @@ class FeatureServiceSpec(google.protobuf.message.Message):
     """When true, pre-computed vectors store only values and a schema fingerprint,
     not the repeated feature name list.
     """
+    output_format: builtins.str
+    """"text" makes online retrieval also return output_field as plain text,
+    one string per entity row. Empty for the usual feature response.
+    """
+    output_field: builtins.str
+    """The String feature returned as text when output_format is "text"."""
     def __init__(
         self,
         *,
@@ -106,9 +114,11 @@ class FeatureServiceSpec(google.protobuf.message.Message):
         logging_config: global___LoggingConfig | None = ...,
         precompute_online: builtins.bool = ...,
         precompute_omit_names: builtins.bool = ...,
+        output_format: builtins.str = ...,
+        output_field: builtins.str = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["logging_config", b"logging_config"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["description", b"description", "features", b"features", "logging_config", b"logging_config", "name", b"name", "owner", b"owner", "precompute_omit_names", b"precompute_omit_names", "precompute_online", b"precompute_online", "project", b"project", "tags", b"tags"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["description", b"description", "features", b"features", "logging_config", b"logging_config", "name", b"name", "output_field", b"output_field", "output_format", b"output_format", "owner", b"owner", "precompute_omit_names", b"precompute_omit_names", "precompute_online", b"precompute_online", "project", b"project", "tags", b"tags"]) -> None: ...
 
 global___FeatureServiceSpec = FeatureServiceSpec
 

@@ -314,6 +314,7 @@ class GetOnlineFeaturesResponse(google.protobuf.message.Message):
     METADATA_FIELD_NUMBER: builtins.int
     RESULTS_FIELD_NUMBER: builtins.int
     STATUS_FIELD_NUMBER: builtins.int
+    TEXT_RESPONSE_FIELD_NUMBER: builtins.int
     @property
     def metadata(self) -> global___GetOnlineFeaturesResponseMetadata: ...
     @property
@@ -322,15 +323,21 @@ class GetOnlineFeaturesResponse(google.protobuf.message.Message):
         We also preserve the same order of features here as in metadata.feature_names
         """
     status: builtins.bool
+    @property
+    def text_response(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+        """For a feature service with output_format "text": its output_field as
+        plain text, one string per entity row. Empty otherwise.
+        """
     def __init__(
         self,
         *,
         metadata: global___GetOnlineFeaturesResponseMetadata | None = ...,
         results: collections.abc.Iterable[global___GetOnlineFeaturesResponse.FeatureVector] | None = ...,
         status: builtins.bool = ...,
+        text_response: collections.abc.Iterable[builtins.str] | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["metadata", b"metadata"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["metadata", b"metadata", "results", b"results", "status", b"status"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["metadata", b"metadata", "results", b"results", "status", b"status", "text_response", b"text_response"]) -> None: ...
 
 global___GetOnlineFeaturesResponse = GetOnlineFeaturesResponse
 

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 import pandas as pd
 import pyarrow as pa
 
+from feast.errors import FeatureServiceTextOutputError
 from feast.feature_view import DUMMY_ENTITY_ID
 from feast.protos.feast.serving.ServingService_pb2 import GetOnlineFeaturesResponse
 from feast.torch_wrapper import get_torch
@@ -84,6 +85,57 @@ class OnlineResponse:
                 ]
 
         return response
+
+    def to_text(self) -> str:
+        """
+        Returns the plain-text output of a text-mode feature service.
+
+        The feature service must have ``output_format="text"``, and the request
+        a single entity row. A null value reads as the empty string. For several
+        rows, ``proto.text_response`` holds one string per row.
+
+        Raises:
+            FeatureServiceTextOutputError: The response has no text, or more
+                than one entity row.
+        """
+        texts = self.proto.text_response
+        if not texts:
+            raise FeatureServiceTextOutputError(
+                "to_text() needs features from a FeatureService with "
+                "output_format='text'; this response has no text."
+            )
+        if len(texts) != 1:
+            raise FeatureServiceTextOutputError(
+                f"to_text() returns the text of one entity row, but this response "
+                f"holds {len(texts)}; read proto.text_response for all of them."
+            )
+        return texts[0]
+
+    def _fill_text_response(self, output_field: str) -> None:
+        """Copy ``output_field`` into ``proto.text_response``, one string per row."""
+        names = self.proto.metadata.feature_names.val
+        # Full feature names prefix the field with its view: "view__field".
+        positions = [
+            i
+            for i, name in enumerate(names)
+            if name == output_field or name.endswith(f"__{output_field}")
+        ]
+        if len(positions) != 1:
+            raise FeatureServiceTextOutputError(
+                f"The response has no single feature '{output_field}' to return "
+                f"as text; it has {list(names)}."
+            )
+        texts = []
+        for value in self.proto.results[positions[0]].values:
+            kind = value.WhichOneof("val")
+            if kind not in (None, "string_val", "null_val"):
+                raise FeatureServiceTextOutputError(
+                    f"Feature '{output_field}' is returned as text, so it must "
+                    f"hold strings, but a row holds {kind}."
+                )
+            texts.append(value.string_val)
+        del self.proto.text_response[:]
+        self.proto.text_response.extend(texts)
 
     def to_df(self, include_event_timestamps: bool = False) -> pd.DataFrame:
         """

@@ -46,6 +46,13 @@ message FeatureServiceSpec {
   // When true, pre-computed vectors store only values and a schema fingerprint,
   // not the repeated feature name list.
   bool precompute_omit_names = 9;
+
+  // "text" makes online retrieval also return output_field as plain text,
+  // one string per entity row. Empty for the usual feature response.
+  string output_format = 10;
+
+  // The String feature returned as text when output_format is "text".
+  string output_field = 11;
 }
 
 

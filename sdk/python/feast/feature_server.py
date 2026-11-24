@@ -42,7 +42,7 @@ from fastapi import (
 )
 from fastapi.concurrency import run_in_threadpool
 from fastapi.logger import logger
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, Field, field_validator
@@ -677,7 +677,9 @@ def get_app(
         dependencies=[Depends(inject_user_details)],
         response_model=OnlineFeaturesResponse,
     )
-    async def get_online_features(request: GetOnlineFeaturesRequest) -> Any:
+    async def get_online_features(
+        request: GetOnlineFeaturesRequest, http_request: Request
+    ) -> Any:
         with feast_metrics.track_request_latency(
             "/get-online-features",
         ) as metrics_ctx:
@@ -720,6 +722,13 @@ def get_app(
                     _emit_online_audit(
                         request, features, entity_count, audit_status, audit_latency_ms
                     )
+
+            # A text-mode feature service answers Accept: text/plain with its
+            # output field alone; every other request gets the JSON features.
+            if getattr(features, "output_format", None) and "text/plain" in (
+                http_request.headers.get("accept", "")
+            ):
+                return PlainTextResponse(response.to_text())
 
             response_dict = await run_in_threadpool(
                 convert_response_to_dict, response.proto
