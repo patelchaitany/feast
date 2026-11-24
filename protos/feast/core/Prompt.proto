@@ -1,0 +1,107 @@
+//
+// Copyright 2026 The Feast Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
+syntax = "proto3";
+package feast.core;
+
+option go_package = "github.com/feast-dev/feast/go/protos/feast/core";
+option java_outer_classname = "PromptProto";
+option java_package = "feast.proto.core";
+
+import "google/protobuf/timestamp.proto";
+
+// One version of a prompt. The registry keeps every version; the one with
+// the highest version_number is the active one.
+message Prompt {
+  // User-specified specifications of this prompt.
+  PromptSpec spec = 1;
+
+  // System-populated metadata for this prompt version.
+  PromptMeta meta = 2;
+}
+
+message PromptSpec {
+  // Name of the prompt. Unique within a project; shared by all its versions.
+  string name = 1;
+
+  // Name of Feast project that this prompt belongs to.
+  string project = 2;
+
+  // Inputs of the prompt function, one per parameter, in order.
+  repeated PromptSource sources = 3;
+
+  // Name of the prompt function.
+  string function_name = 4;
+
+  // Source text of the prompt function. Feast rebuilds the function from it
+  // when it renders the prompt.
+  string function_source = 5;
+
+  // Jinja2 template filled with the mapping the function returns. Empty when
+  // the function returns the prompt text itself.
+  string template = 6;
+
+  // Most tokens the prompt may take. Zero leaves it unbounded.
+  int32 max_tokens = 7;
+
+  // Name of the tokenizer that counts tokens, such as "cl100k_base".
+  string tokenizer = 8;
+
+  // How each template variable gives way when the prompt runs over budget.
+  map<string, PromptVariable> variables = 9;
+
+  // What gives way when the prompt runs over budget, such as "truncate_longest".
+  string overflow_strategy = 10;
+
+  // Description of the prompt.
+  string description = 11;
+
+  // User defined metadata.
+  map<string, string> tags = 12;
+
+  // Owner of the prompt.
+  string owner = 13;
+}
+
+message PromptSource {
+  // Name of the feature view (with "@vN" when pinned), or of the request source.
+  string name = 1;
+
+  // Features read from the view, or fields read from the request.
+  repeated string fields = 2;
+
+  // Whether the source is request data rather than a feature view.
+  bool request = 3;
+}
+
+message PromptVariable {
+  // How readily the variable is cut, such as "critical" or "low".
+  string priority = 1;
+
+  // Most tokens the variable's text may take. Zero leaves it uncapped.
+  int32 max_tokens = 2;
+
+  // Which part of the text is cut: "tail", "middle" or "head".
+  string truncation = 3;
+}
+
+message PromptMeta {
+  // Version of this prompt, starting at 1. Assigned by the registry.
+  int32 version_number = 1;
+
+  // Time this version was registered.
+  google.protobuf.Timestamp created_timestamp = 2;
+}

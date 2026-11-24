@@ -26,7 +26,11 @@ from feast.protos.feast.core.FeatureService_pb2 import (
 from feast.protos.feast.core.FeatureService_pb2 import (
     FeatureServiceSpec as FeatureServiceSpecProto,
 )
+from feast.types import String
 from feast.version_utils import parse_version
+
+#: The output format that returns a feature service's output field as text.
+TEXT_OUTPUT_FORMAT = "text"
 
 if TYPE_CHECKING:
     from feast.infra.registry.base_registry import BaseRegistry
@@ -48,6 +52,9 @@ class FeatureService:
             maintainer.
         created_timestamp: The time when the feature service was created.
         last_updated_timestamp: The time when the feature service was last updated.
+        output_format: "text" to also return ``output_field`` as plain text from
+            online retrieval; None for the usual feature response.
+        output_field: The String feature returned as text in text mode.
     """
 
     name: str
@@ -63,6 +70,8 @@ class FeatureService:
 
     precompute_online: bool = False
     precompute_omit_names: bool = False
+    output_format: Optional[str] = None
+    output_field: Optional[str] = None
 
     def __init__(
         self,
@@ -75,6 +84,8 @@ class FeatureService:
         logging_config: Optional[LoggingConfig] = None,
         precompute_online: bool = False,
         precompute_omit_names: bool = False,
+        output_format: Optional[str] = None,
+        output_field: Optional[str] = None,
     ):
         """
         Creates a FeatureService object.
@@ -99,7 +110,29 @@ class FeatureService:
                 primary maintainer.
             precompute_online (optional): When True, a pre-computed feature vector is
                 maintained per entity for single-read online retrieval.
+            output_format (optional): "text" to make online retrieval also return
+                ``output_field`` as plain text: ``OnlineResponse.to_text()``,
+                ``text_response`` over gRPC, and ``Accept: text/plain`` on the
+                HTTP feature server. The feature response is unchanged.
+            output_field (optional): The String feature, by its bare name, that
+                text mode returns. Required when ``output_format`` is "text".
         """
+        if output_format not in (None, TEXT_OUTPUT_FORMAT):
+            raise ValueError(
+                f"FeatureService '{name}' has output_format {output_format!r}; "
+                f"the only output format is {TEXT_OUTPUT_FORMAT!r}."
+            )
+        if output_format and not output_field:
+            raise ValueError(
+                f"FeatureService '{name}' has output_format "
+                f"{TEXT_OUTPUT_FORMAT!r}, so it needs output_field: the String "
+                f"feature to return as text."
+            )
+        if output_field and not output_format:
+            raise ValueError(
+                f"FeatureService '{name}' has output_field {output_field!r} but no "
+                f"output_format; set output_format={TEXT_OUTPUT_FORMAT!r}."
+            )
         self.name = name
         self._features = features
         self._pending_feature_refs = []
@@ -112,6 +145,8 @@ class FeatureService:
         self.logging_config = logging_config
         self.precompute_online = precompute_online
         self.precompute_omit_names = precompute_omit_names
+        self.output_format = output_format
+        self.output_field = output_field
         for feature_grouping in self._features:
             if isinstance(feature_grouping, str):
                 # No registry at construction time; resolved in resolve_pending_refs.
@@ -293,6 +328,7 @@ class FeatureService:
             self.resolve_pending_refs(project, registry)
 
         if self._features and all(p.features for p in self.feature_view_projections):
+            self._check_output_field()
             return self
 
         if (
@@ -303,6 +339,7 @@ class FeatureService:
                 for p in self.feature_view_projections
             )
         ):
+            self._check_output_field()
             return self
 
         fvs_to_update: Dict[str, Union[FeatureView, BaseFeatureView]] = {}
@@ -365,6 +402,8 @@ class FeatureService:
             logging_config=self.logging_config,
             precompute_online=self.precompute_online,
             precompute_omit_names=self.precompute_omit_names,
+            output_format=self.output_format,
+            output_field=self.output_field,
         )
         prepared.created_timestamp = self.created_timestamp
         prepared.last_updated_timestamp = self.last_updated_timestamp
@@ -372,7 +411,43 @@ class FeatureService:
 
         self._features = prepared._features
         self.feature_view_projections = prepared.feature_view_projections
+        self._check_output_field()
         return self
+
+    def _check_output_field(self) -> None:
+        """In text mode, require ``output_field`` to be one String feature.
+
+        Runs once the projections carry their features, which a service built
+        from string refs or schema-less views only does when applied.
+        """
+        if self.output_format != TEXT_OUTPUT_FORMAT:
+            return
+        matches = [
+            (projection.name_to_use(), feature)
+            for projection in self.feature_view_projections
+            for feature in projection.features
+            if feature.name == self.output_field
+        ]
+        if not matches:
+            raise ValueError(
+                f"FeatureService '{self.name}' returns output_field "
+                f"'{self.output_field}' as text, but none of its features has "
+                f"that name."
+            )
+        if len(matches) > 1:
+            views = ", ".join(f"'{view}'" for view, _ in matches)
+            raise ValueError(
+                f"FeatureService '{self.name}' returns output_field "
+                f"'{self.output_field}' as text, but feature views {views} each "
+                f"have a feature by that name."
+            )
+        view, feature = matches[0]
+        if feature.dtype != String:
+            raise ValueError(
+                f"FeatureService '{self.name}' returns output_field "
+                f"'{self.output_field}' as text, so it must be a String feature, "
+                f"but '{view}' declares it as {feature.dtype}."
+            )
 
     @staticmethod
     def _projection_matches_registry_features(
@@ -424,6 +499,8 @@ class FeatureService:
             or self.owner != other.owner
             or self.precompute_online != other.precompute_online
             or self.precompute_omit_names != other.precompute_omit_names
+            or self.output_format != other.output_format
+            or self.output_field != other.output_field
         ):
             return False
 
@@ -453,6 +530,8 @@ class FeatureService:
             ),
             precompute_online=feature_service_proto.spec.precompute_online,
             precompute_omit_names=feature_service_proto.spec.precompute_omit_names,
+            output_format=feature_service_proto.spec.output_format or None,
+            output_field=feature_service_proto.spec.output_field or None,
         )
         fs.feature_view_projections.extend(
             [
@@ -506,6 +585,8 @@ class FeatureService:
             else None,
             precompute_online=self.precompute_online,
             precompute_omit_names=self.precompute_omit_names,
+            output_format=self.output_format or "",
+            output_field=self.output_field or "",
         )
 
         return FeatureServiceProto(spec=spec, meta=meta)

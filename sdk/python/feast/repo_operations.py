@@ -32,6 +32,7 @@ from feast.names import adjectives, animals
 from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.permissions.permission import Permission
 from feast.project import Project
+from feast.prompt import Prompt
 from feast.repo_config import RepoConfig
 from feast.repo_contents import RepoContents
 from feast.stream_feature_view import StreamFeatureView
@@ -130,6 +131,7 @@ def parse_repo(repo_root: Path) -> RepoContents:
         stream_feature_views=[],
         label_views=[],
         permissions=[],
+        prompts=[],
     )
 
     for repo_file in get_repo_files(repo_root):
@@ -234,6 +236,8 @@ def parse_repo(repo_root: Path) -> RepoContents:
                 (obj is p) for p in res.permissions
             ):
                 res.permissions.append(obj)
+            elif isinstance(obj, Prompt) and not any((obj is p) for p in res.prompts):
+                res.prompts.append(obj)
             elif isinstance(obj, Project) and not any((obj is p) for p in res.projects):
                 res.projects.append(obj)
 

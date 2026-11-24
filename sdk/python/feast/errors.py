@@ -120,6 +120,30 @@ class FeatureServiceNotFoundException(FeastObjectNotFoundException):
             super().__init__(f"Feature service {name} does not exist")
 
 
+class FeatureServiceTextOutputError(FeastError):
+    """A text-mode feature service cannot give its output as plain text."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+    def grpc_status_code(self) -> "GrpcStatusCode":
+        from grpc import StatusCode as GrpcStatusCode
+
+        return GrpcStatusCode.INVALID_ARGUMENT
+
+    def http_status_code(self) -> int:
+        return HttpStatusCode.HTTP_400_BAD_REQUEST
+
+
+class PromptNotFoundException(FeastObjectNotFoundException):
+    def __init__(self, name, project=None, version=None):
+        prompt = f"Version {version} of prompt {name}" if version else f"Prompt {name}"
+        if project:
+            super().__init__(f"{prompt} does not exist in project {project}")
+        else:
+            super().__init__(f"{prompt} does not exist")
+
+
 class FeatureViewNotFoundException(FeastObjectNotFoundException):
     def __init__(self, name, project=None, suggestions: Optional[List[str]] = None):
         if project:

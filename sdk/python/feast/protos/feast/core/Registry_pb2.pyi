@@ -29,6 +29,7 @@ import feast.core.LabelView_pb2
 import feast.core.OnDemandFeatureView_pb2
 import feast.core.Permission_pb2
 import feast.core.Project_pb2
+import feast.core.Prompt_pb2
 import feast.core.SavedDataset_pb2
 import feast.core.StreamFeatureView_pb2
 import feast.core.ValidationProfile_pb2
@@ -46,7 +47,7 @@ else:
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class Registry(google.protobuf.message.Message):
-    """Next id: 20"""
+    """Next id: 21"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -68,6 +69,7 @@ class Registry(google.protobuf.message.Message):
     PROJECTS_FIELD_NUMBER: builtins.int
     FEATURE_VIEW_VERSION_HISTORY_FIELD_NUMBER: builtins.int
     LABEL_VIEWS_FIELD_NUMBER: builtins.int
+    PROMPTS_FIELD_NUMBER: builtins.int
     @property
     def entities(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[feast.core.Entity_pb2.Entity]: ...
     @property
@@ -105,6 +107,9 @@ class Registry(google.protobuf.message.Message):
     def feature_view_version_history(self) -> feast.core.FeatureViewVersion_pb2.FeatureViewVersionHistory: ...
     @property
     def label_views(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[feast.core.LabelView_pb2.LabelView]: ...
+    @property
+    def prompts(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[feast.core.Prompt_pb2.Prompt]:
+        """Every version of every prompt."""
     def __init__(
         self,
         *,
@@ -126,9 +131,10 @@ class Registry(google.protobuf.message.Message):
         projects: collections.abc.Iterable[feast.core.Project_pb2.Project] | None = ...,
         feature_view_version_history: feast.core.FeatureViewVersion_pb2.FeatureViewVersionHistory | None = ...,
         label_views: collections.abc.Iterable[feast.core.LabelView_pb2.LabelView] | None = ...,
+        prompts: collections.abc.Iterable[feast.core.Prompt_pb2.Prompt] | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["feature_view_version_history", b"feature_view_version_history", "infra", b"infra", "last_updated", b"last_updated"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["data_sources", b"data_sources", "entities", b"entities", "feature_services", b"feature_services", "feature_tables", b"feature_tables", "feature_view_version_history", b"feature_view_version_history", "feature_views", b"feature_views", "infra", b"infra", "label_views", b"label_views", "last_updated", b"last_updated", "on_demand_feature_views", b"on_demand_feature_views", "permissions", b"permissions", "project_metadata", b"project_metadata", "projects", b"projects", "registry_schema_version", b"registry_schema_version", "saved_datasets", b"saved_datasets", "stream_feature_views", b"stream_feature_views", "validation_references", b"validation_references", "version_id", b"version_id"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["data_sources", b"data_sources", "entities", b"entities", "feature_services", b"feature_services", "feature_tables", b"feature_tables", "feature_view_version_history", b"feature_view_version_history", "feature_views", b"feature_views", "infra", b"infra", "label_views", b"label_views", "last_updated", b"last_updated", "on_demand_feature_views", b"on_demand_feature_views", "permissions", b"permissions", "project_metadata", b"project_metadata", "projects", b"projects", "prompts", b"prompts", "registry_schema_version", b"registry_schema_version", "saved_datasets", b"saved_datasets", "stream_feature_views", b"stream_feature_views", "validation_references", b"validation_references", "version_id", b"version_id"]) -> None: ...
 
 global___Registry = Registry
 

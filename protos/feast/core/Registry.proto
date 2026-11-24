@@ -36,8 +36,9 @@ import "feast/core/Permission.proto";
 import "feast/core/Project.proto";
 import "feast/core/FeatureViewVersion.proto";
 import "feast/core/LabelView.proto";
+import "feast/core/Prompt.proto";
 
-// Next id: 20
+// Next id: 21
 message Registry {
     repeated Entity entities = 1;
     repeated FeatureTable feature_tables = 2;
@@ -59,6 +60,8 @@ message Registry {
     repeated Project projects = 17;
     FeatureViewVersionHistory feature_view_version_history = 18;
     repeated LabelView label_views = 19;
+    // Every version of every prompt.
+    repeated Prompt prompts = 20;
 }
 
 message ProjectMetadata {

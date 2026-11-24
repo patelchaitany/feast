@@ -41,6 +41,7 @@ from feast.cli.monitor import monitor_cmd
 from feast.cli.on_demand_feature_views import on_demand_feature_views_cmd
 from feast.cli.permissions import feast_permissions_cmd
 from feast.cli.projects import projects_cmd
+from feast.cli.prompts import prompts_cmd
 from feast.cli.registry import registry_cmd
 from feast.cli.saved_datasets import saved_datasets_cmd
 from feast.cli.serve import (
@@ -637,6 +638,7 @@ def demo_notebooks_command(ctx: click.Context, output_dir: str, overwrite: bool)
 cli.add_command(data_sources_cmd)
 cli.add_command(entities_cmd)
 cli.add_command(feature_services_cmd)
+cli.add_command(prompts_cmd)
 cli.add_command(feature_views_cmd)
 cli.add_command(features_cmd)
 cli.add_command(get_historical_features)

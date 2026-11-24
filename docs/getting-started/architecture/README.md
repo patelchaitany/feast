@@ -27,3 +27,7 @@
 {% content-ref url="rbac.md" %}
 [rbac.md](rbac.md)
 {% endcontent-ref %}
+
+{% content-ref url="llm-context-assembly.md" %}
+[llm-context-assembly.md](llm-context-assembly.md)
+{% endcontent-ref %}
