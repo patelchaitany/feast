@@ -44,6 +44,7 @@ class RecordedRequest:
     path: str
     authorization: Optional[str]
     host: str = ""
+    accept: Optional[str] = None
     body: Any = None
     params: dict = field(default_factory=dict)
 
@@ -124,6 +125,7 @@ class FakeFeastBackend:
                 path=request.url.path,
                 authorization=request.headers.get("authorization"),
                 host=request.url.host,
+                accept=request.headers.get("accept"),
                 body=body,
                 params=dict(request.url.params),
             )

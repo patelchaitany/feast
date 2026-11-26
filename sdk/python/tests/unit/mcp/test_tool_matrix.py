@@ -7,7 +7,7 @@ The server is a proxy, so each tool has exactly two things to get right:
    sent as nulls; and
 2. it hands Feast's response back to the caller unmangled.
 
-This module covers all 10 feature tools and all 13 registry tools in one
+This module covers all 12 feature tools and all 14 registry tools in one
 table. Structural concerns (registration, namespacing, schemas) live in
 ``test_tools.py``; token handling lives in ``test_auth.py``.
 
@@ -53,6 +53,10 @@ class ToolCase:
     params: dict = field(default_factory=dict)
     body: Any = NO_BODY
     returns: Any = ECHOES_PAYLOAD
+    #: What Feast answers, for a tool that reads the answer rather than
+    #: echoing it. None queues the test's own payload.
+    response: Any = None
+    response_type: str = "application/json"
 
 
 TS_START = "2026-01-01T00:00:00"
@@ -92,6 +96,34 @@ FEATURE_CASES = [
             "full_feature_names": True,
             "feature_service": "driver_activity",
         },
+    ),
+    ToolCase(
+        id="assemble_context",
+        tool="features_assemble_context",
+        args={
+            "feature_service": "recommendation_prompt_service",
+            "entity_keys": {"user_id": "u1"},
+        },
+        method="POST",
+        path="/get-online-features",
+        body={
+            "features": [],
+            "entities": {"user_id": ["u1"]},
+            "feature_service": "recommendation_prompt_service",
+        },
+        response="Recommend films for Alice.",
+        response_type="text/plain",
+        returns="Recommend films for Alice.",
+    ),
+    ToolCase(
+        id="get_prompt",
+        tool="features_get_prompt",
+        args={"prompt": "concierge@v2", "entity_keys": {"user_id": "u1"}},
+        method="POST",
+        path="/render-prompt",
+        body={"prompt": "concierge@v2", "entities": {"user_id": ["u1"]}},
+        response={"prompts": [{"name": "concierge", "version": 2, "text": "Hi."}]},
+        returns="Hi.",
     ),
     ToolCase(
         id="search:defaults",
@@ -515,6 +547,35 @@ REGISTRY_CASES = [
         params={"project": "demo"},
     ),
     ToolCase(
+        id="list_prompt_services",
+        tool="registry_list_prompt_services",
+        args={"project": "demo"},
+        method="GET",
+        path="/api/v1/feature_services",
+        params={"project": "demo"},
+        response={
+            "featureServices": [
+                {
+                    "spec": {
+                        "name": "recommendation_prompt_service",
+                        "outputFormat": "text",
+                        "outputField": "recommendation_prompt",
+                        "features": [{"featureViewName": "recommendation_view"}],
+                    }
+                },
+                {"spec": {"name": "driver_activity", "features": []}},
+            ]
+        },
+        returns=[
+            {
+                "name": "recommendation_prompt_service",
+                "description": "",
+                "output_field": "recommendation_prompt",
+                "feature_views": ["recommendation_view"],
+            }
+        ],
+    ),
+    ToolCase(
         id="list_data_sources",
         tool="registry_list_data_sources",
         args={"project": "demo"},
@@ -583,7 +644,9 @@ ALL_CASES = FEATURE_CASES + REGISTRY_CASES
 
 
 async def _invoke(case: ToolCase, feast_backend, payload):
-    feast_backend.queue(200, payload)
+    if case.response is not None:
+        payload = case.response
+    feast_backend.queue(200, payload, content_type=case.response_type)
     async with Client(build_mcp()) as client:
         return await client.call_tool(case.tool, case.args)
 

@@ -140,6 +140,8 @@ Tools are namespaced by the sub-server that provides them, for example `features
 
 **Tools provided by the `features` sub-server:**
 * `get_online_features`: Retrieve online feature values for a set of entities
+* `assemble_context`: Return, as plain text, the LLM prompt a feature service with `output_format="text"` builds for one entity. With `max_tokens` (counted with `tokenizer`, `cl100k_base` by default), a longer prompt is refused with its token count rather than cut
+* `get_prompt`: Render a versioned `@prompt` for one entity and return its text, for example `concierge` (latest) or `concierge@v2`. The prompt's own `max_tokens` applies
 * `search`: Vector similarity search against online document embeddings, with optional metadata `filters`
 * `list_vector_stores`, `get_vector_store`: List and inspect available vector stores
 * `vector_store_search`: OpenAI-compatible vector store search, with optional metadata `filters` and `features_to_retrieve`
@@ -154,9 +156,12 @@ Tools are namespaced by the sub-server that provides them, for example `features
 * `list_feature_views`, `get_feature_view`: List and inspect feature views
 * `list_features`: List individual features (columns) across all feature views
 * `list_feature_services`, `get_feature_service`: Browse feature services
+* `list_prompt_services`: List the feature services with `output_format="text"`, which `features_assemble_context` accepts, with their output field and feature views
 * `list_data_sources`, `get_data_source`: Browse data sources
 * `search_registry`: Full-text search across all registry objects
 * `get_lineage`: Retrieve lineage relationships between registry objects
+
+See [LLM context assembly](../../getting-started/architecture/llm-context-assembly.md) for text-mode feature services and `@prompt`.
 
 HTTP errors from Feast are raised as MCP tool errors rather than returned as tool results, so a `403` from Feast's permission model reaches the client as a failure instead of being passed to the model as feature data.
 
