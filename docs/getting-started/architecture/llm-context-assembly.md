@@ -218,6 +218,25 @@ curl -X POST http://localhost:6566/get-online-features \
 
 Without that header, and for every other feature service, the response is the usual JSON. `feast apply` refuses a text-mode service whose `output_field` is not exactly one String feature among its features.
 
+### From an AI agent over MCP
+
+The [standalone MCP server](../../reference/feature-servers/mcp-server.md) (`feast mcp`) gives agents three tools for this:
+
+| Tool | What it does |
+|---|---|
+| `registry_list_prompt_services` | Lists the text-mode feature services in a project. |
+| `features_assemble_context` | Returns a text-mode feature service's prompt for one entity. With `max_tokens`, a longer prompt is refused with its token count, so the agent can fit its own context window. |
+| `features_get_prompt` | Renders a versioned `@prompt`, such as `concierge@v2`, for one entity. |
+
+```json
+{
+  "feature_service": "restaurant_prompt_service",
+  "entity_keys": {"user_id": "u123"},
+  "max_tokens": 4096,
+  "tokenizer": "cl100k_base"
+}
+```
+
 ## Code
 
 * `sdk/python/feast/prompt.py`: the `@prompt` decorator, `Prompt` and `RenderedPrompt`.

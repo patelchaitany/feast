@@ -71,6 +71,27 @@ class TestToolRegistration:
         assert feast_backend.call_count == 0, "invalid args must not reach Feast"
 
 
+class TestPromptTools:
+    async def test_assemble_context_refuses_a_prompt_over_max_tokens(
+        self, feast_backend
+    ):
+        feast_backend.queue(200, "x" * 400, content_type="text/plain")
+        async with Client(build_mcp()) as client:
+            with pytest.raises(ToolError, match="is 100 tokens"):
+                await client.call_tool(
+                    "features_assemble_context",
+                    {
+                        "feature_service": "recommendation_prompt_service",
+                        "entity_keys": {"user_id": "u1"},
+                        "max_tokens": 50,
+                        "tokenizer": "approximate",
+                    },
+                )
+        # The feature server answers a text-mode service with plain text
+        # only when asked to.
+        assert feast_backend.last.accept == "text/plain"
+
+
 class TestFeastBackendFailures:
     """Fault injection -- Feast is unreachable or answers with an error."""
 

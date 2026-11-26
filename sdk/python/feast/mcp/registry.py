@@ -5,7 +5,7 @@ at ``/api/v1/``, letting an LLM discover what features, entities,
 feature views, and feature services exist in a Feast project.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastmcp import FastMCP
 
@@ -201,6 +201,41 @@ def create_registry_mcp(client: FeastClient) -> FastMCP:
             token=get_auth_token(),
             params={"project": project},
         )
+
+    @registry_mcp.tool
+    async def list_prompt_services(project: str) -> List[Dict[str, Any]]:
+        """List the feature services that return an LLM prompt as text.
+
+        These are the services features_assemble_context accepts: ones
+        defined with output_format="text". Find the entity keys a service
+        needs with get_feature_view on its feature views.
+
+        Args:
+            project: Feast project name.
+        """
+        response = await client.request(
+            "GET",
+            "/api/v1/feature_services",
+            token=get_auth_token(),
+            params={"project": project},
+        )
+        services = []
+        for feature_service in response.get("featureServices", []):
+            spec = feature_service.get("spec", {})
+            if spec.get("outputFormat") != "text":
+                continue
+            services.append(
+                {
+                    "name": spec.get("name"),
+                    "description": spec.get("description", ""),
+                    "output_field": spec.get("outputField"),
+                    "feature_views": [
+                        projection.get("featureViewName")
+                        for projection in spec.get("features", [])
+                    ],
+                }
+            )
+        return services
 
     # ------------------------------------------------------------------
     # Data Sources

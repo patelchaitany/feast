@@ -52,10 +52,14 @@ class FeastClient:
             ssl.create_default_context(cafile=cert) if cert else True
         )
 
-    def _headers(self, token: Optional[str] = None) -> Dict[str, str]:
+    def _headers(
+        self, token: Optional[str] = None, accept: Optional[str] = None
+    ) -> Dict[str, str]:
         headers: Dict[str, str] = {"Content-Type": "application/json"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
+        if accept:
+            headers["Accept"] = accept
         return headers
 
     async def request(
@@ -66,6 +70,7 @@ class FeastClient:
         token: Optional[str] = None,
         json: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, str]] = None,
+        accept: Optional[str] = None,
     ) -> Any:
         url = f"{self._base_url}{path}"
         async with httpx.AsyncClient(
@@ -74,7 +79,7 @@ class FeastClient:
             response = await client.request(
                 method,
                 url,
-                headers=self._headers(token),
+                headers=self._headers(token, accept),
                 json=json,
                 params=params,
             )

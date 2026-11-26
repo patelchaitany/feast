@@ -37,7 +37,8 @@ def create_mcp(cfg: Config) -> FastMCP:
     mcp = FastMCP(
         "feast",
         instructions=(
-            "Feast Feature Store — retrieve online features, search documents, "
+            "Feast Feature Store — retrieve online features, assemble LLM "
+            "prompts, search documents, "
             "manage materialization, and browse the feature registry."
         ),
     )
